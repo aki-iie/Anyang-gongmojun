@@ -29,7 +29,7 @@
 | `functions/geocode.js` | VWorld 지오코더 (asia-northeast3) | ✅ 동작 |
 | `functions/flood30.json` | 30년 빈도 도시침수지도 | ✅ 적재 |
 | `functions/flood50.json` | 50년 빈도 도시침수지도 | ✅ 적재 |
-| `functions/trace.json` | 침수흔적도 안양시 8건 (채널 B) | ✅ 적재 |
+| `functions/trace.json` | 침수흔적도 8건 (석수동5·박달동1·비산동2) | ✅ 적재 |
 | `tools/build_trace.py` | 흔적도 재생성 스크립트 | ✅ 동작 |
 | `functions/package.json` | 서버 의존성 | ✅ |
 
@@ -72,7 +72,7 @@ docs/schema.md                    12슬롯 ↔ DB 컬럼 매핑
 - [x] Firebase Hosting + Functions 배포
 - [ ] **판정 로직 연결** — 차동현의 `diagnose.js` 를 `index.js` 에 등록
 - [ ] **DB 비식별 저장** — Firestore 미연동 (코드에 흔적 없음)
-- [x] **침수흔적도 2채널** — 안양시 8건 통합·배포 완료 (박달동 6건이 예측지도 밖)
+- [x] **침수흔적도 2채널** — 안양시 8건 통합·배포 완료 (석수동/충훈부 5건이 예측지도 밖)
 
 ### ③ LLM 연동
 - [x] OpenRouter gpt-4o-mini 3종 호출 (Vision·매핑·대화)
