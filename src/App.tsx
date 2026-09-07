@@ -396,12 +396,32 @@ export default function App() {
     ? {
         name: '도시침수지도 예상 침수심',
         detail: flood.covered
-          ? `${flood.label}${flood.seg ? ` (등급 ${flood.seg})` : ''} · ${flood.source}`
+          ? `${flood.label}${flood.seg ? ` (등급 ${flood.seg})` : ''}`
           : flood.label,
-        pts: '+' + flood.pts,
+        /* 합산 배점(flood.pts)이 아니라 채널 A 단독 배점을 보여준다.
+           두 채널을 각각 몇 점으로 봤는지 드러나야 근거가 읽힌다. */
+        pts: '+' + (flood.mapPts ?? flood.pts),
       }
     : BASE_FACTOR;
   const factors: Factor[] = [mapFactor];
+  /* 채널 B — 실제로 잠겼던 기록. 예측지도에 없는 곳이 여기서 걸린다. */
+  if (flood?.covered && flood.trace) {
+    const t = flood.trace;
+    factors.push({
+      name: '실제 침수 기록 (침수흔적도)',
+      detail: t.hit
+        ? `${t.year}년 ${t.disaster || '호우'} 때 약 ${t.depth}m 침수${t.cause ? ` · ${t.cause}` : ''}`
+        : t.label,
+      pts: '+' + t.pts,
+    });
+    if (flood.basis === 'both') {
+      factors.push({
+        name: '예측·기록 중복 가산',
+        detail: '예상 침수 구역이면서 실제로 잠겼던 기록도 있는 곳입니다',
+        pts: '+5',
+      });
+    }
+  }
   for (const k of ['sill', 'window', 'history'] as QuestionKey[]) {
     if (k in scores) {
       const aiDetail = vlmResult?.factors[k]?.detail;
@@ -504,13 +524,25 @@ ${breakdown}`,
         <div style={sx('background:var(--color-accent-100);border-radius:8px;padding:14px 18px;display:flex;flex-direction:column;gap:4px',
                        'background:var(--color-accent-100);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:4px')}>
           <strong style={sx('font-size:19px;color:var(--color-accent-900)', 'font-size:15px;color:var(--color-accent-900)')}>
-            {flood.inMap ? `침수 예상 구역입니다 (+${flood.pts}점)` : flood.covered ? '침수 예상 구역이 아닙니다 (+0점)' : '판정 범위 밖입니다'}
+            {!flood.covered
+              ? '판정 범위 밖입니다'
+              : flood.inMap
+                ? `침수 예상 구역입니다 (+${flood.pts}점)`
+                : flood.trace?.hit
+                  ? `예상 구역은 아니지만 침수 기록이 있습니다 (+${flood.pts}점)`
+                  : '침수 예상 구역이 아닙니다 (+0점)'}
           </strong>
           <span style={sx('font-size:16px;color:var(--color-neutral-700)', 'font-size:13px;color:var(--color-neutral-700)')}>{flood.label}</span>
           {flood.freq30 && flood.freq50 && (
             <span style={sx('font-size:15px;color:var(--color-neutral-700)', 'font-size:12.5px;color:var(--color-neutral-700)')}>
               30년 빈도 {flood.freq30.inMap ? `침수 (${flood.freq30.seg})` : '해당 없음'} · 50년 빈도 {flood.freq50.inMap ? `침수 (${flood.freq50.seg})` : '해당 없음'}
               {!flood.freq30.inMap && flood.freq50.inMap ? ' — 더 큰 비에는 잠길 수 있어요' : ''}
+            </span>
+          )}
+          {flood.trace?.hit && (
+            /* 예측지도와 별개로, 실제로 잠겼던 기록이 있으면 반드시 알려 준다 */
+            <span style={sx('font-size:15px;color:var(--color-accent-900);font-weight:600', 'font-size:12.5px;color:var(--color-accent-900);font-weight:600')}>
+              이 자리는 {flood.trace.year}년에 실제로 약 {flood.trace.depth}m 잠겼던 기록이 있어요
             </span>
           )}
           <span style={sx('font-size:14px;color:var(--color-neutral-600)', 'font-size:12px;color:var(--color-neutral-600)')}>
@@ -921,24 +953,33 @@ ${breakdown}`,
             {floodPos && flood && flood.covered && (
               /* 결과 화면 — 같은 지도에 침수 레이어가 차오르고 점수가 새겨진다 */
               <div style={css('display:flex;flex-direction:column;gap:10px')}>
-                <h3 style={sx('font-size:28px;margin:0', 'font-size:20px;margin:0')}>내 위치의 침수 예상 구역</h3>
+                <h3 style={sx('font-size:28px;margin:0', 'font-size:20px;margin:0')}>내 위치의 침수 위험</h3>
                 <div style={css('border:1px solid var(--color-neutral-200);border-radius:12px;overflow:hidden')}>
                   <FloodMap
                     lat={floodPos.lat}
                     lon={floodPos.lon}
                     accuracy={floodPos.acc}
                     shapes={flood.shapes?.freq50 ?? flood.shapes?.freq30}
-                    badge={{ seg: flood.seg, pts: flood.pts }}
+                    traces={flood.shapes?.trace}
+                    badge={{ seg: flood.seg, pts: flood.pts, basis: flood.basis }}
                     overlay
                     zoom={16}
                     height={isMobile ? 210 : 300}
                   />
                 </div>
                 <p style={sx('font-size:16px;color:var(--color-neutral-700);margin:0', 'font-size:13px;color:var(--color-neutral-700);margin:0')}>
-                  진할수록 예상 침수심이 깊은 구간입니다. {flood.freq30 && flood.freq50 && !flood.freq30.inMap && flood.freq50.inMap
+                  파란 면은 예상 침수 구역이고, 진할수록 깊습니다. {flood.freq30 && flood.freq50 && !flood.freq30.inMap && flood.freq50.inMap
                     ? '30년 빈도에는 안전하지만 50년 빈도 강우에는 침수 예상 구역에 들어갑니다.'
                     : '50년 빈도 강우 기준으로 표시했습니다.'}
                 </p>
+                {flood.shapes?.trace?.length ? (
+                  <p style={sx('font-size:16px;color:var(--color-neutral-700);margin:0', 'font-size:13px;color:var(--color-neutral-700);margin:0')}>
+                    <b style={{ color: '#b4452f' }}>붉은 점선</b>은 실제로 물이 찼던 기록이 남은 구역입니다.
+                    {flood.trace?.hit && !flood.inMap
+                      ? ' 예상 지도에는 빠져 있지만, 여기는 실제로 잠겼던 자리예요.'
+                      : ''}
+                  </p>
+                ) : null}
               </div>
             )}
 

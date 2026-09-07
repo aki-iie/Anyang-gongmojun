@@ -3,7 +3,7 @@
    클라이언트는 OpenAI 형식 body를 그대로 보내고, 이 함수가 서버에서 키를 붙여 대신 호출한다. */
 
 const { onRequest } = require('firebase-functions/v2/https');
-const { classify, inCoverage, shapesNear } = require('./flood');
+const { classify, inCoverage, shapesNear, classifyTrace, tracesNear, combine } = require('./flood');
 const { geocode } = require('./geocode');
 
 /* 허용 모델 화이트리스트 — 열린 프록시가 되어 임의 모델을 태우지 못하게 막는다. */
@@ -85,7 +85,10 @@ exports.llm = onRequest(
 
 
 /* ────────────────────────────────────────────────────────────
-   침수지도 조회 — 위경도 → 30년 빈도 예상 침수 등급 + 배점
+   침수 조회 — 위경도 → 두 채널 판정 + 배점
+     채널 A 도시침수지도(예측)  30년·50년 빈도
+     채널 B 침수흔적도(실적)    2022년 등 실제 침수 기록
+   두 채널은 일치하지 않는다. 박달동은 A 에서 빠져 있지만 B 에 6건이 남아 있다.
    GET/POST /api/flood?lat=37.3943&lon=126.9568
    ──────────────────────────────────────────────────────────── */
 exports.flood = onRequest(
@@ -110,9 +113,9 @@ exports.flood = onRequest(
     if (!inCoverage(lon, lat)) {
       res.json({
         covered: false, inMap: false, seg: null, pts: 0,
-        label: '안양시 밖으로 보여요. 도시침수지도는 안양시 만안구·동안구만 담고 있습니다',
+        label: '안양시 밖으로 보여요. 침수지도는 안양시 만안구·동안구만 담고 있습니다',
         lat, lon,
-        source: '안양시 도시침수지도 30년·50년 빈도',
+        source: '안양시 도시침수지도 30년·50년 빈도 · 침수흔적도',
       });
       return;
     }
@@ -123,23 +126,36 @@ exports.flood = onRequest(
     const r50 = classify(lon, lat, '050');
     const main = r50.inMap ? r50 : r30;
 
+    /* 채널 B — 실제 침수 기록 */
+    const tr = classifyTrace(lon, lat);
+    const { pts, basis } = combine(main.pts, tr.pts);
+
     /* shape=1 이면 지도에 그릴 주변 폴리곤도 함께 보낸다 (반경 최대 1km) */
     let shapes;
     if (String(src.shape) === '1') {
       const radius = Math.min(1000, Math.max(150, Number(src.radius) || 500));
-      shapes = { freq30: shapesNear(lon, lat, '030', radius), freq50: shapesNear(lon, lat, '050', radius), radius };
+      shapes = {
+        freq30: shapesNear(lon, lat, '030', radius),
+        freq50: shapesNear(lon, lat, '050', radius),
+        trace: tracesNear(lon, lat, radius),
+        radius,
+      };
     }
 
     res.json({
       covered: true,
       inMap: main.inMap,
       seg: main.seg,
-      pts: main.pts,
+      /* pts 는 두 채널을 합친 최종 배점이다. 채널 A 단독 배점은 mapPts 로 따로 보낸다. */
+      pts,
+      basis,
+      mapPts: main.pts,
       label: main.label,
       matched: main.matched,
       freq30: { inMap: r30.inMap, seg: r30.seg, pts: r30.pts, label: r30.label },
       freq50: { inMap: r50.inMap, seg: r50.seg, pts: r50.pts, label: r50.label },
-      source: '안양시 도시침수지도 30년·50년 빈도',
+      trace: tr,
+      source: '안양시 도시침수지도 30년·50년 빈도 · 침수흔적도(2022년 등)',
       lat, lon,
       ...(shapes ? { shapes } : {}),
     });

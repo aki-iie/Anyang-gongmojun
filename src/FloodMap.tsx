@@ -2,11 +2,15 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-/* 등급별 색 — 깊을수록 진하다 */
+/* 채널 A(도시침수지도·예측) 등급별 색 — 깊을수록 진하다 */
 const COLOR: Record<string, string> = {
   N330: '#d3e3ef', N331: '#a2c6de', N332: '#6ea3c6', N333: '#3d79a6', N334: '#1f4f78',
 };
 const ORDER = ['N330', 'N331', 'N332', 'N333', 'N334'];
+
+/* 채널 B(침수흔적도·실적)는 다른 종류의 정보라서 색과 선을 다르게 쓴다.
+   예측은 파란 면, 실적은 붉은 점선. 겹쳐 그려도 어느 쪽인지 바로 읽힌다. */
+const TRACE_COLOR = '#b4452f';
 
 /* 배경지도 타일.
    VITE_TILE_URL 이 있으면 그 타일을, 없으면 배경 없이 침수 구역만 그린다.
@@ -28,17 +32,21 @@ type Props = {
   lon: number;
   accuracy?: number;
   shapes?: FloodShapes;
+  /* 침수흔적 폴리곤 — 링은 [lat,lon,lat,lon,...] */
+  traces?: number[][];
   zoom?: number;
   height?: number;
   /* 위치 확인 단계에서는 false — 깨끗한 지도만 보여준다.
      결과 단계에서만 침수 레이어를 얹는다. */
   overlay?: boolean;
-  /* 핀 위에 새길 등급·배점 배지 */
-  badge?: { seg: string | null; pts: number } | null;
+  /* 핀 위에 새길 등급·배점 배지.
+     basis 는 점수의 근거 — 예측 구역이 아닌데 실제 침수 기록으로 점수가 난 경우
+     "침수 구역 아님 +25점" 같은 모순된 문구가 나오지 않게 한다. */
+  badge?: { seg: string | null; pts: number; basis?: 'both' | 'map' | 'trace' | 'none' } | null;
 };
 
 export default function FloodMap({
-  lat, lon, accuracy = 0, shapes, zoom = 16, height = 210,
+  lat, lon, accuracy = 0, shapes, traces, zoom = 16, height = 210,
   overlay = false, badge = null,
 }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -103,6 +111,23 @@ export default function FloodMap({
         if (reduce) paint();
         else timers.current.push(setTimeout(paint, 80 + i * 95));
       });
+
+      /* 실제로 잠겼던 구역은 예측 레이어를 다 얹은 뒤 위에 올린다.
+         예측에 없는데 실적에 있는 곳(박달동)이 이 단계에서 드러난다. */
+      if (traces?.length) {
+        const paintTrace = () => {
+          for (const flat of traces) {
+            const pts: [number, number][] = [];
+            for (let k = 0; k < flat.length; k += 2) pts.push([flat[k], flat[k + 1]]);
+            L.polygon(pts, {
+              color: TRACE_COLOR, weight: 2, opacity: 0.9, dashArray: '5 3',
+              fillColor: TRACE_COLOR, fillOpacity: 0.18,
+            }).addTo(group);
+          }
+        };
+        if (reduce) paintTrace();
+        else timers.current.push(setTimeout(paintTrace, 80 + ORDER.length * 95));
+      }
     }
 
     if (accuracy > 0) {
@@ -118,8 +143,13 @@ export default function FloodMap({
     /* 점수 배지 — 지도를 다 읽은 뒤 결론이 도착하는 순서로 늦게 띄운다 */
     if (badge) {
       const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-      const label = badge.seg ? `${badge.seg} · <b style="color:#b4452f">+${badge.pts}점</b>`
-                              : `침수 구역 아님 · <b style="color:#b4452f">+0점</b>`;
+      const basis = badge.basis ?? (badge.seg ? 'map' : 'none');
+      const head =
+        basis === 'both' ? `${badge.seg} · 침수 기록 있음`
+        : basis === 'trace' ? '실제 침수 기록 있음'
+        : basis === 'map' ? `${badge.seg}`
+        : '침수 구역 아님';
+      const label = `${head} · <b style="color:#b4452f">+${badge.pts}점</b>`;
       const html =
         `<div style="transform:translate(-50%,-100%) translateY(-10px);white-space:nowrap;` +
         `background:var(--color-bg);border:1.5px solid #b4452f;border-radius:9px;padding:5px 10px;` +
@@ -138,7 +168,7 @@ export default function FloodMap({
     map.invalidateSize();
     /* badge 객체는 매 렌더 새로 만들어지므로 값(seg·pts)만 의존성으로 둔다. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lat, lon, accuracy, shapes, zoom, overlay, badge?.seg, badge?.pts]);
+  }, [lat, lon, accuracy, shapes, traces, zoom, overlay, badge?.seg, badge?.pts, badge?.basis]);
 
   return (
     <div style={{ position: 'relative', height }}>

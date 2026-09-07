@@ -35,10 +35,12 @@ R&R 문서에 **Supabase / Vue.js** 로 적혀 있으나 **실제 코드는 다�
 ```
 src/**                      전체 프론트엔드
 functions/index.js          엔드포인트 등록 (⚠️ 최다 충돌 지점)
-functions/flood.js          침수 판정·조회
+functions/flood.js          침수 판정·조회 (두 채널)
 functions/geocode.js        주소→좌표
-functions/flood30.json      30년 빈도 침수 데이터
-functions/flood50.json      50년 빈도 침수 데이터
+functions/flood30.json      30년 빈도 도시침수지도 (채널 A)
+functions/flood50.json      50년 빈도 도시침수지도 (채널 A)
+functions/trace.json        침수흔적도 안양시 8건 (채널 B)
+tools/**                    데이터 생성 스크립트
 functions/package.json      서버 의존성
 functions/extract-slot/index.ts
 firebase.json               배포 설정
@@ -101,8 +103,9 @@ Claude가 `diagnose.js` 작업 중 "엔드포인트도 등록해드릴까요?" �
 김황현은 텍스트만 카톡으로 전달하고, 반영은 류서현이 한다.
 
 ### 데이터 파일은 소유자만 덮어쓴다
-`functions/flood30.json`, `flood50.json` 은 파이썬 파이프라인 산출물이다.
-직접 편집하지 말고, 재생성이 필요하면 담당자에게 요청한다.
+`functions/flood30.json`, `flood50.json`, `trace.json` 은 파이썬 파이프라인 산출물이다.
+손으로 편집하지 말고, 재생성이 필요하면 담당자에게 요청한다.
+`trace.json` 은 `tools/build_trace.py` 가 만든다 (`SAFETYDATA_KEY` 필요).
 
 ---
 
@@ -194,6 +197,8 @@ functions/
 ## 8. 알려진 제약
 
 - `SEG_CODE N330~N334` = 침수심 등급 (클수록 깊음). **실제 미터 범위는 미확인.**
+- 침수 위험 점수는 **두 채널 합산** — `min(30, max(예측, 실적) + 겹치면 5)`. 총점이 `/100` 표시라 단순 덧셈을 쓰지 않는다.
+- 침수흔적도에 **충훈동 기록은 없다.** 안양시 8건은 박달동 6 · 비산동 2, 2022년뿐이다.
 - VWorld 지오코더는 **해외 IP를 차단**한다. `geocode` 함수는 반드시 `asia-northeast3` 리전.
 - 진단 1회 비용 약 **9원** (사진 3장 Vision 호출 포함).
 - 충훈동은 도시침수지도 범위 **밖**이다. 침수흔적도(별도 채널)로 보완 예정.
