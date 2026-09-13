@@ -40,3 +40,6 @@ firebase-debug.log
 
 # 침수흔적도 전국 원본 캐시 (46MB) — tools/build_trace.py 가 다시 받는다
 .cache_trace
+
+__pycache__/
+*.pyc
