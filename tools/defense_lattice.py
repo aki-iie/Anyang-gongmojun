@@ -5,7 +5,7 @@
   경로 A(지표 유입) 판정은 `예상침수심 > 실효 방어높이` 뺄셈 하나다.
   그리고 실효 방어높이는 슬롯 **네 개**로만 정해진다.
       entrance_sill · water_panel · window_base · window_barrier
-  그래서 가능한 조합이 유한하고(48가지), 전수 열거가 가능하다.
+  그래서 가능한 조합이 유한하고(80가지), 전수 열거가 가능하다.
 
 왜 하나
   도시침수지도 등급 → cm 환산값(SEG_DEPTH_CM)이 아직 확정되지 않았다.
@@ -19,14 +19,14 @@
   (차동현 담당 파일 — 읽기만 하고 수정하지 않는다)
 
 현장조사 데이터가 있으면
-  field_survey_45.csv 가 있으면 조합별 실제 출현 빈도로 가중해 다시 계산한다.
+  현장조사 CSV 가 있으면 조합별 실제 출현 빈도로 가중해 다시 계산한다.
   없으면 조합 전수(= 모든 조합이 똑같이 흔하다는 가정) 기준으로만 낸다.
   **전수 기준 비율을 "안양 반지하의 X%" 라고 말하면 안 된다.** 가중 계산이
   나오기 전까지는 "가능한 조합 중 X%" 까지만 말할 수 있다.
 
 사용법
   python3 tools/defense_lattice.py                      # 조합 전수만
-  python3 tools/defense_lattice.py field_survey_45.csv  # 실측 가중
+  python3 tools/defense_lattice.py field_survey_chunghun34.csv  # 실측 가중
 """
 import csv
 import os
@@ -153,7 +153,7 @@ def main():
     print()
 
     # ── 현장조사 데이터가 있으면 가중 계산 ───────────────────────────
-    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'field_survey_45.csv')
+    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'field_survey_chunghun34.csv')
     if not os.path.exists(path):
         print('=' * 72)
         print(f'현장조사 CSV 없음 ({os.path.basename(path)}) — 조합 전수 기준까지만 계산했습니다.')

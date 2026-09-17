@@ -35,7 +35,7 @@ def base(**over):
 # ══════════════════════════════════════════════════════════════
 def test_case1_typical_vulnerable():
     slots = base(
-        entrance_sill="카드보다낮음", stair_count="3-4",
+        entrance_sill="카드1개", stair_count="3-4",
         water_panel="미설치", window_base="비슷",
         window_barrier="미설치", backflow_valve="없음",
         rainy_symptom="있음", gurgling="없음", floor_backup="없음",
@@ -90,17 +90,17 @@ def test_case2_all_unknown():
 # ══════════════════════════════════════════════════════════════
 def test_case3_fully_protected():
     slots = base(
-        entrance_sill="카드보다높음", stair_count="0",
-        water_panel="설치", window_base="땅보다높음",
+        entrance_sill="카드2개", stair_count="0",
+        water_panel="설치", window_base="카드2개",
         window_barrier="설치", backflow_valve="있음",
         rainy_symptom="없음", gurgling="없음", floor_backup="없음",
         road_slope="오르막", drain_status="양호", canopy="있음",
     )
     r = diagnose(slots, flood_depth_cm=40.0, build_year=2015)
 
-    # 현관 15+30=45, 창문 20+30=50 -> 실효 45cm > 침수심 40cm
+    # 현관 17+30=47, 창문 17+30=47 -> 실효 47cm > 침수심 40cm
     assert r["surface"]["status"] == "방어가능"
-    assert r["surface"]["effective_defense_cm"] == 45
+    assert r["surface"]["effective_defense_cm"] == 47
     assert r["surface"]["inflow_cm"] == 0.0
     assert r["surface"]["need_barrier_cm"] is None
 
@@ -119,7 +119,7 @@ def test_case3_fully_protected():
 # ══════════════════════════════════════════════════════════════
 def test_case4_no_flood_data():
     slots = base(
-        entrance_sill="카드와비슷", stair_count="1-2",
+        entrance_sill="카드1개", stair_count="1-2",
         water_panel="미설치", window_base="비슷",
         window_barrier="미설치", backflow_valve="없음",
         rainy_symptom="없음", gurgling="있음", floor_backup="없음",
@@ -144,8 +144,8 @@ def test_case4_no_flood_data():
 # ══════════════════════════════════════════════════════════════
 def test_case5_window_is_weakest():
     slots = base(
-        entrance_sill="카드보다높음", stair_count="1-2",
-        water_panel="설치",            # 현관 15+30 = 45cm
+        entrance_sill="카드2개", stair_count="1-2",
+        water_panel="설치",            # 현관 17+30 = 47cm
         window_base="땅보다낮음",       # 창문 0cm
         window_barrier="미설치",
         backflow_valve="있음",          # 밸브는 있으나
@@ -177,19 +177,19 @@ def test_case5_window_is_weakest():
 # ══════════════════════════════════════════════════════════════
 def test_case6_partial_unknown_not_safe():
     slots = base(
-        entrance_sill="카드보다높음", water_panel="설치",   # 현관 15+30 = 45cm
+        entrance_sill="카드2개", water_panel="설치",   # 현관 17+30 = 47cm
         window_base="unknown", window_barrier="unknown",   # 창문 모름
         backflow_valve="있음", rainy_symptom="없음",
         gurgling="없음", floor_backup="없음",
     )
     r = diagnose(slots, flood_depth_cm=30.0)
 
-    # 현관 45cm > 침수심 30cm 이지만 창문을 모르므로 방어가능이라 할 수 없다
+    # 현관 47cm > 침수심 30cm 이지만 창문을 모르므로 방어가능이라 할 수 없다
     assert r["surface"]["status"] == "확인필요", \
         f"창문 미확인인데 {r['surface']['status']} 로 결론 — 위험"
     assert r["surface"]["unknown_openings"] == ["창문"]
     assert r["surface"]["weakest_point"] == "현관"
-    assert r["surface"]["effective_defense_cm"] == 45
+    assert r["surface"]["effective_defense_cm"] == 47
     assert "창문" in r["surface"]["reason"]
     print("  CASE 6 통과 — 한쪽 미확인 시 '방어가능' 결론 금지")
 
@@ -201,13 +201,13 @@ def test_case6_partial_unknown_not_safe():
 # ══════════════════════════════════════════════════════════════
 def test_case7_partial_unknown_but_inflow_certain():
     slots = base(
-        entrance_sill="카드보다낮음", water_panel="미설치",  # 현관 5cm
+        entrance_sill="카드1개", water_panel="미설치",  # 현관 8.5cm
         window_base="unknown", window_barrier="unknown",
     )
     r = diagnose(slots, flood_depth_cm=30.0)
 
     assert r["surface"]["status"] == "유입가능"
-    assert r["surface"]["inflow_cm"] == 25.0
+    assert r["surface"]["inflow_cm"] == 21.5
     assert r["surface"]["unknown_openings"] == ["창문"]
     assert "확인하지 못했습니다" in r["surface"]["reason"]
     print("  CASE 7 통과 — 한쪽만으로 유입 확정 시 미확인과 무관하게 판정")
@@ -218,8 +218,8 @@ def test_case7_partial_unknown_but_inflow_certain():
 # ══════════════════════════════════════════════════════════════
 def test_case8_both_known_both_safe():
     slots = base(
-        entrance_sill="카드보다높음", water_panel="설치",    # 45cm
-        window_base="땅보다높음", window_barrier="설치",     # 50cm
+        entrance_sill="카드2개", water_panel="설치",    # 47cm
+        window_base="카드2개", window_barrier="설치",     # 47cm
     )
     r = diagnose(slots, flood_depth_cm=30.0)
     assert r["surface"]["status"] == "방어가능"
@@ -246,7 +246,7 @@ def test_invalid_enum_rejected():
 # ══════════════════════════════════════════════════════════════
 def test_deterministic():
     slots = base(
-        entrance_sill="카드보다낮음", stair_count="3-4",
+        entrance_sill="카드1개", stair_count="3-4",
         water_panel="미설치", window_base="비슷",
         window_barrier="미설치", backflow_valve="없음",
         rainy_symptom="있음", gurgling="없음", floor_backup="없음",
