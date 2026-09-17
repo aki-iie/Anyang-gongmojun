@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>잠길까 — 행정 대시보드 (시범)</title>
+<style>
+  :root {
+    --ink: #1a1a1a; --muted: #6b7280; --line: #d9dee5;
+    --navy: #1f3864; --accent: #2f6b4f; --danger: #b91c1c; --warn: #b45309;
+    --bg: #f6f7f9; --card: #ffffff;
+    --n1: #fde8d0; --n2: #f9c48d; --n3: #ef8b4a; --n4: #d94f2b; --n5: #8b1a1a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #e8e8e8; --muted: #9aa3ad; --line: #2c333c;
+      --bg: #12151a; --card: #1b2028;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Noto Sans KR", "Malgun Gothic", -apple-system, sans-serif;
+    font-size: 14px; line-height: 1.55;
+  }
+  header {
+    background: var(--navy); color: #fff; padding: 18px 28px;
+    display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px;
+  }
+  header h1 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+  header .sub { font-size: 12.5px; opacity: .85; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 20px 60px; }
+  .banner {
+    background: #fff8e6; border-left: 3px solid var(--warn); padding: 10px 14px;
+    border-radius: 4px; font-size: 13px; margin-bottom: 22px; color: #4a3a00;
+  }
+  h2 { font-size: 15.5px; margin: 28px 0 10px; color: var(--navy); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .kpi {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px;
+  }
+  .kpi .l { font-size: 12px; color: var(--muted); }
+  .kpi .v { font-size: 26px; font-weight: 700; margin-top: 4px; letter-spacing: -.02em; }
+  .kpi .s { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+  .card h3 { margin: 0 0 10px; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { background: rgba(0,0,0,.035); font-weight: 600; font-size: 12.5px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; }
+  .b5 { background: var(--n5); color: #fff; } .b4 { background: var(--n4); color: #fff; }
+  .b3 { background: var(--n3); color: #fff; } .b2 { background: var(--n2); color: #4a2a00; }
+  .b1 { background: var(--n1); color: #4a2a00; }
+  .bar { height: 22px; display: flex; border-radius: 4px; overflow: hidden; margin: 8px 0 6px; }
+  .bar div { display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; font-weight: 600; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .legend .l1::before { background: var(--n1); } .legend .l2::before { background: var(--n2); }
+  .legend .l3::before { background: var(--n3); } .legend .l4::before { background: var(--n4); }
+  .legend .l5::before { background: var(--n5); }
+  img.heat { width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--line); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  button, a.btn {
+    background: var(--navy); color: #fff; border: 0; padding: 8px 14px; border-radius: 6px;
+    font-size: 13px; cursor: pointer; text-decoration: none; display: inline-block;
+  }
+  button.sec, a.btn.sec { background: transparent; color: var(--navy); border: 1px solid var(--navy); }
+  .muted { color: var(--muted); font-size: 12.5px; }
+  .gap { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+  .gap .item { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  .gap .item b { display: block; margin-bottom: 3px; }
+  .tag-ok { color: var(--accent); font-weight: 600; } .tag-no { color: var(--danger); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  footer { margin-top: 40px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; }
+  #status { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>잠길까 · 행정 대시보드</h1>
+    <div class="sub">안양시 반지하 침수 취약지 현황 — 시범 운영 (만안구·동안구)</div>
+  </div>
+  <div id="status">데이터 불러오는 중…</div>
+</header>
+
+<main>
+  <div class="banner">
+    이 화면은 <b>공무원용 시범 화면</b>입니다. 개인 주소·사진은 저장하지 않으며, 모든 수치는 100m 격자 단위로 집계됩니다.
+    현재 표시되는 데이터는 안양시 도시침수지도(30년 빈도)를 기반으로 산출한 <b>우선 조사 구역</b>이며,
+    거주자 진단이 누적되면 실제 가구 단위 통계로 대체됩니다.
+  </div>
+
+  <h2>1. 한눈에 보기</h2>
+  <div class="kpis">
+    <div class="kpi"><div class="l">분석 격자</div><div class="v" id="k-grid">—</div><div class="s">100m × 100m</div></div>
+    <div class="kpi"><div class="l">침수 예상 구역 포함</div><div class="v" id="k-flood">—</div><div class="s" id="k-flood-s">—</div></div>
+    <div class="kpi"><div class="l">깊은 침수 예상 (N332 이상)</div><div class="v" id="k-deep">—</div><div class="s">60cm 이상 구간</div></div>
+    <div class="kpi"><div class="l">최우선 조사 구역</div><div class="v" id="k-top" style="font-size:18px">—</div><div class="s" id="k-top-s">—</div></div>
+    <div class="kpi"><div class="l">공식 침수흔적 기록</div><div class="v">8<span style="font-size:14px;font-weight:400">건</span></div><div class="s">전부 2022년 8월 · 내수침수 7건</div></div>
+  </div>
+
+  <h2>2. 침수 예상 등급 분포</h2>
+  <div class="card">
+    <div class="bar" id="bar"></div>
+    <div class="legend">
+      <span class="l1">N330 얕음 (20cm)</span><span class="l2">N331 중간 (40cm)</span>
+      <span class="l3">N332 깊음 (60cm)</span><span class="l4">N333 매우 깊음 (100cm)</span><span class="l5">N334 가장 깊음 (150cm)</span>
+    </div>
+    <p class="muted" style="margin:10px 0 0">
+      괄호 안은 등급별 대표 침수심입니다. 등급 원본에는 cm 값이 없어 구간 하한을 택해 보수적으로 환산했습니다.
+      <b>반지하는 20cm만 차도 현관 턱을 넘습니다.</b>
+    </p>
+  </div>
+
+  <div class="grid2" style="margin-top:18px">
+    <div class="card">
+      <h3>3. 우선 조사 구역 상위 10</h3>
+      <div class="scroll"><table id="top10">
+        <thead><tr><th>#</th><th>격자</th><th>등급</th><th class="num">대표침수심</th><th class="num">침수면적비</th><th class="num">지수</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div class="actions">
+        <a class="btn" id="dl-top" download="top10_priority_grid.csv" href="top10_priority_grid.csv">Top10 CSV</a>
+        <a class="btn sec" id="dl-all" download="grid_priority_all.csv" href="grid_priority_all.csv">전체 격자 CSV</a>
+      </div>
+      <p class="muted" style="margin:10px 0 0">
+        지수 = 정규화(등급) + 정규화(침수면적비). 임의 가중치 없음.
+        세대밀도 결합 시 순위가 세분화됩니다.
+      </p>
+    </div>
+    <div class="card">
+      <h3>4. 취약지 히트맵</h3>
+      <img class="heat" src="heatmap_manan.png" alt="안양시 반지하 침수 취약지 히트맵">
+      <p class="muted" style="margin:8px 0 0">파란 원: 침수흔적 기록 지점(8건, 참고) · 초록 원: 우선 조사 상위 10</p>
+    </div>
+  </div>
+
+  <h2>5. 침수흔적도 기록 (공식)</h2>
+  <div class="card">
+    <div class="scroll"><table>
+      <thead><tr><th>#</th><th>구</th><th>연도</th><th>재해</th><th>원인</th><th class="num">침수심</th><th class="num">면적(m²)</th></tr></thead>
+      <tbody id="trace"></tbody>
+    </table></div>
+    <p class="muted" style="margin:10px 0 0">
+      출처: 재난안전데이터공유플랫폼 DSSP-IF-00117. <b>침수흔적도는 피해자 신고 기반</b>이라 실제 피해보다 과소 기록됩니다.
+      2022년 8월 충훈부 일대가 실제 침수됐음에도 안양시 전역 기록은 8건뿐입니다 — 이것이 가구 단위 진단이 필요한 이유입니다.
+    </p>
+  </div>
+
+  <h2>6. 지원사업 매칭 — 현행 지원과 공백</h2>
+  <div class="card">
+    <div class="gap">
+      <div class="item"><b>창문 차수막</b>지표 유입 (창문)<br><span class="tag-ok">안양시 지원</span></div>
+      <div class="item"><b>배수 펌프</b>유입 후 배출<br><span class="tag-ok">안양시 지원</span></div>
+      <div class="item"><b>현관 물막이판</b>지표 유입 (현관)<br><span class="tag-no">미지원</span> — 단일 설비로 효과 최대</div>
+      <div class="item"><b>역류방지밸브</b>내부 역류<br><span class="tag-no">미지원</span> — 물막이판으로 대체 불가</div>
+    </div>
+    <p class="muted" style="margin:12px 0 0">
+      비교: 서울 강동구는 「반지하주택 전수조사 시행계획(2023)」에서 차수판·<b>역지변(역류방지밸브)</b>·차양시설까지 지원 품목으로 명시.
+      안양시는 창문 차단과 사후 배수에 집중되어 있어 <b>현관 차단과 역류 차단이 공백</b>입니다.
+      본 서비스가 축적하는 가구별 진단 데이터는 이 공백에 해당하는 가구를 식별해 지원사업 확대의 근거가 됩니다.
+    </p>
+  </div>
+
+  <h2>7. 향후 이 화면에 들어올 것</h2>
+  <div class="card">
+    <table>
+      <tr><th style="width:34%">항목</th><th>설명</th><th style="width:16%">전제</th></tr>
+      <tr><td>동별 진단 가구 수</td><td>거주자가 동의한 진단 결과를 행정동 단위로 집계</td><td>Firestore 연동</td></tr>
+      <tr><td>지표 유입 / 역류 대비 미흡 비율</td><td>두 경로별 대비 상태 분포. 지원사업 유형별 수요 산정</td><td>Firestore 연동</td></tr>
+      <tr><td>우선 지원 가구 목록</td><td>예상 유입 깊이 내림차순. 동주민센터 방문 순서</td><td>Firestore 연동</td></tr>
+      <tr><td>세대밀도 결합 우선순위</td><td>행정동별 인구·세대현황으로 반지하 존재 추정 반영</td><td>안양시 CSV 1종</td></tr>
+    </table>
+  </div>
+
+  <footer>
+    잠길까 · 2026 안양시 공공데이터·AI 활용 대학생 경진대회 · 데이터: 안양시 도시침수지도(30·50년 빈도), 침수흔적도, 국가공간정보포털
+  </footer>
+</main>
+
+<script>
+(async function () {
+  const $ = (s) => document.querySelector(s);
+  const status = $('#status');
+
+  function parseCSV(text) {
+    const lines = text.replace(/^\uFEFF/, '').trim().split(/\r?\n/);
+    const head = lines[0].split(',');
+    return lines.slice(1).map(l => {
+      const cells = l.split(',');
+      const o = {};
+      head.forEach((h, i) => o[h.trim()] = (cells[i] ?? '').trim());
+      return o;
+    });
+  }
+
+  async function loadCSV(name) {
+    const r = await fetch(name, { cache: 'no-store' });
+    if (!r.ok) throw new Error(name + ' ' + r.status);
+    return parseCSV(await r.text());
+  }
+
+  const TRACE = [
+    ['만안구','2022','8.8~17 호우','내수침수',26.2,2834.8],
+    ['만안구','2022','8.8~17 호우','내수침수',24.9,3239.3],
+    ['만안구','2022','8.8~17 호우','내수침수',21.4,2468.0],
+    ['만안구','2022','8.8~17 호우','내수침수',19.7,2571.2],
+    ['동안구','2022','8.8~17 호우','내수침수',12.9,2128.4],
+    ['동안구','2022','8.8~17 호우','내수침수',12.8,2465.7],
+    ['만안구','2022','8.8~17 호우','내수침수',9.3,1125.5],
+    ['만안구','2022','8.8~17 호우','미기재',33.0,2515.0],
+  ];
+  $('#trace').innerHTML = TRACE.map((t, i) =>
+    `<tr><td>${i+1}</td><td>${t[0]}</td><td>${t[1]}</td><td>${t[2]}</td><td>${t[3]}</td><td class="num">${t[4].toFixed(1)}cm</td><td class="num">${t[5].toLocaleString()}</td></tr>`
+  ).join('');
+
+  try {
+    const [top, all] = await Promise.all([
+      loadCSV('top10_priority_grid.csv'),
+      loadCSV('grid_priority_all.csv'),
+    ]);
+
+    // KPI
+    const nAll = all.length;
+    const ranks = all.map(r => Number(r.max_rank) || 0);
+    const nFlood = ranks.filter(r => r > 0).length;
+    const nDeep = ranks.filter(r => r >= 3).length;
+    // 전체 격자 수는 분석 노트북 기준 6,205 (침수 구역 밖 격자는 CSV에 없음)
+    const TOTAL_GRID = 6205;
+    $('#k-grid').textContent = TOTAL_GRID.toLocaleString();
+    $('#k-flood').textContent = nFlood.toLocaleString();
+    $('#k-flood-s').textContent = (nFlood / TOTAL_GRID * 100).toFixed(1) + '% 격자';
+    $('#k-deep').textContent = nDeep.toLocaleString();
+    if (top[0]) {
+      $('#k-top').textContent = top[0]['격자ID'] + ' · ' + top[0]['등급'];
+      $('#k-top-s').textContent = `(${Number(top[0]['중심경도']).toFixed(4)}, ${Number(top[0]['중심위도']).toFixed(4)})`;
+    }
+
+    // 등급 분포 바
+    const counts = [1,2,3,4,5].map(k => ranks.filter(r => r === k).length);
+    const total = counts.reduce((a,b)=>a+b,0) || 1;
+    const colors = ['var(--n1)','var(--n2)','var(--n3)','var(--n4)','var(--n5)'];
+    $('#bar').innerHTML = counts.map((c, i) => {
+      const w = c / total * 100;
+      const label = w > 6 ? `${c}` : '';
+      return `<div style="width:${w}%;background:${colors[i]};${i<2?'color:#4a2a00':''}" title="N33${i} ${c}격자">${label}</div>`;
+    }).join('');
+
+    // Top10 표
+    $('#top10 tbody').innerHTML = top.map(r => {
+      const g = String(r['등급']);
+      const cls = 'b' + (g.replace('N33','') ? (Number(g.slice(-1)) + 1) : 1);
+      return `<tr>
+        <td>${r['순위']}</td><td>${r['격자ID']}</td>
+        <td><span class="badge ${cls}">${g}</span></td>
+        <td class="num">${Number(r['대표침수심(cm)']).toFixed(0)}cm</td>
+        <td class="num">${Number(r['침수면적비']).toFixed(2)}</td>
+        <td class="num"><b>${Number(r['우선조사지수']).toFixed(3)}</b></td>
+      </tr>`;
+    }).join('');
+
+    status.textContent = `${new Date().toLocaleDateString('ko-KR')} 기준 · 격자 ${nFlood.toLocaleString()}개 로드`;
+  } catch (e) {
+    status.textContent = '데이터 로드 실패 — CSV 파일이 같은 폴더에 있어야 합니다.';
+    console.error(e);
+  }
+})();
+</script>
+</body>
+</html>
