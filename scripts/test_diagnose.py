@@ -170,6 +170,64 @@ def test_case5_window_is_weakest():
 
 
 # ══════════════════════════════════════════════════════════════
+# CASE 6 — 한쪽 개구부만 알 때 (류서현 지적 사항, 2026-09-16)
+#   현관은 방어되는데 창문을 모름
+#   기대: '방어가능'으로 결론짓지 않고 '확인필요'
+#         모르는 개구부가 최약점일 수 있으므로 안전하다고 말할 수 없다
+# ══════════════════════════════════════════════════════════════
+def test_case6_partial_unknown_not_safe():
+    slots = base(
+        entrance_sill="카드보다높음", water_panel="설치",   # 현관 15+30 = 45cm
+        window_base="unknown", window_barrier="unknown",   # 창문 모름
+        backflow_valve="있음", rainy_symptom="없음",
+        gurgling="없음", floor_backup="없음",
+    )
+    r = diagnose(slots, flood_depth_cm=30.0)
+
+    # 현관 45cm > 침수심 30cm 이지만 창문을 모르므로 방어가능이라 할 수 없다
+    assert r["surface"]["status"] == "확인필요", \
+        f"창문 미확인인데 {r['surface']['status']} 로 결론 — 위험"
+    assert r["surface"]["unknown_openings"] == ["창문"]
+    assert r["surface"]["weakest_point"] == "현관"
+    assert r["surface"]["effective_defense_cm"] == 45
+    assert "창문" in r["surface"]["reason"]
+    print("  CASE 6 통과 — 한쪽 미확인 시 '방어가능' 결론 금지")
+
+
+# ══════════════════════════════════════════════════════════════
+# CASE 7 — 한쪽만 알아도 유입이 확정되는 경우 (비대칭의 반대편)
+#   현관이 이미 침수심보다 낮음, 창문은 모름
+#   기대: 모르는 쪽과 무관하게 '유입가능' 확정
+# ══════════════════════════════════════════════════════════════
+def test_case7_partial_unknown_but_inflow_certain():
+    slots = base(
+        entrance_sill="카드보다낮음", water_panel="미설치",  # 현관 5cm
+        window_base="unknown", window_barrier="unknown",
+    )
+    r = diagnose(slots, flood_depth_cm=30.0)
+
+    assert r["surface"]["status"] == "유입가능"
+    assert r["surface"]["inflow_cm"] == 25.0
+    assert r["surface"]["unknown_openings"] == ["창문"]
+    assert "확인하지 못했습니다" in r["surface"]["reason"]
+    print("  CASE 7 통과 — 한쪽만으로 유입 확정 시 미확인과 무관하게 판정")
+
+
+# ══════════════════════════════════════════════════════════════
+# CASE 8 — 둘 다 알고 둘 다 방어될 때만 '방어가능'
+# ══════════════════════════════════════════════════════════════
+def test_case8_both_known_both_safe():
+    slots = base(
+        entrance_sill="카드보다높음", water_panel="설치",    # 45cm
+        window_base="땅보다높음", window_barrier="설치",     # 50cm
+    )
+    r = diagnose(slots, flood_depth_cm=30.0)
+    assert r["surface"]["status"] == "방어가능"
+    assert r["surface"]["unknown_openings"] == []
+    print("  CASE 8 통과 — 전부 확인된 경우에만 '방어가능'")
+
+
+# ══════════════════════════════════════════════════════════════
 # 부가 — 허용되지 않은 Enum 차단
 # ══════════════════════════════════════════════════════════════
 def test_invalid_enum_rejected():
@@ -209,6 +267,9 @@ if __name__ == "__main__":
         test_case3_fully_protected,
         test_case4_no_flood_data,
         test_case5_window_is_weakest,
+        test_case6_partial_unknown_not_safe,
+        test_case7_partial_unknown_but_inflow_certain,
+        test_case8_both_known_both_safe,
         test_invalid_enum_rejected,
         test_deterministic,
     ]

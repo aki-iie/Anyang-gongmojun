@@ -109,72 +109,86 @@ def _diagnose_surface(slots: Dict[str, Any],
     """
     개구부별 방어 높이를 각각 구하고 '가장 낮은 지점'을 실효 방어높이로 삼는다.
     현관에 물막이판이 있어도 창문이 지면보다 낮으면 그쪽으로 물이 들어온다.
+
+    비대칭 판정 원칙
+    ----------------
+    - 아는 개구부 하나만으로도 침수심보다 낮으면 -> '유입가능' 확정.
+      (모르는 개구부가 더 낮더라도 결론은 같다)
+    - 아는 개구부는 방어되지만 다른 개구부를 모르면 -> '확인필요'.
+      모르는 쪽이 최약점일 수 있으므로 '방어가능'이라 결론지을 수 없다.
+    - 둘 다 알고 둘 다 방어될 때만 -> '방어가능'.
+
+    "위험하다"는 한쪽만 알아도 말할 수 있지만,
+    "안전하다"는 전부 알아야 말할 수 있다.
     """
     sill = slots.get("entrance_sill")
     panel = slots.get("water_panel")
     wbase = slots.get("window_base")
     wbar = slots.get("window_barrier")
 
-    # 현관 방어 높이
     entrance_def = None
     if not _is_unknown(sill):
         entrance_def = SILL_CM[sill]
         if panel == "설치":
             entrance_def += PANEL_CM
 
-    # 창문 방어 높이
     window_def = None
     if not _is_unknown(wbase):
         window_def = WINDOW_BASE_CM[wbase]
         if wbar == "설치":
             window_def += BARRIER_CM
 
-    known = [d for d in (entrance_def, window_def) if d is not None]
+    known = {}
+    if entrance_def is not None:
+        known["현관"] = entrance_def
+    if window_def is not None:
+        known["창문"] = window_def
+    unknown_openings = [n for n in ("현관", "창문") if n not in known]
+
+    base = {
+        "effective_defense_cm": None,
+        "weakest_point": None,
+        "inflow_cm": None,
+        "need_barrier_cm": None,
+        "unknown_openings": unknown_openings,
+    }
 
     if not known:
-        return {
-            "status": "확인필요",
-            "reason": "현관 턱과 창문 위치를 모두 확인하지 못했습니다.",
-            "effective_defense_cm": None,
-            "weakest_point": None,
-            "inflow_cm": None,
-            "need_barrier_cm": None,
-        }
+        return {**base, "status": "확인필요",
+                "reason": "현관 턱과 창문 위치를 모두 확인하지 못했습니다."}
 
-    effective = min(known)
-    weakest = "창문" if (window_def is not None and effective == window_def) else "현관"
+    weakest = min(known, key=known.get)
+    effective = known[weakest]
+    base["effective_defense_cm"] = effective
+    base["weakest_point"] = weakest
 
     if flood_depth_cm is None:
-        return {
-            "status": "확인필요",
-            "reason": "해당 주소의 예상침수심 정보를 조회하지 못했습니다.",
-            "effective_defense_cm": effective,
-            "weakest_point": weakest,
-            "inflow_cm": None,
-            "need_barrier_cm": None,
-        }
+        return {**base, "status": "확인필요",
+                "reason": "해당 주소의 예상침수심 정보를 조회하지 못했습니다."}
 
+    # 아는 개구부만으로 이미 유입이 확정되면, 모르는 쪽과 무관하게 결론이 같다.
     if flood_depth_cm > effective:
-        return {
-            "status": "유입가능",
-            "reason": f"예상침수심 {flood_depth_cm:g}cm 가 "
-                      f"{weakest} 방어높이 {effective}cm 를 초과합니다.",
-            "effective_defense_cm": effective,
-            "weakest_point": weakest,
-            "inflow_cm": round(flood_depth_cm - effective, 1),
-            # 행안부 고시 제23조: 예상 침수 높이 이상의 여유고 확보
-            "need_barrier_cm": round(flood_depth_cm, 1),
-        }
+        reason = (f"예상침수심 {flood_depth_cm:g}cm 가 "
+                  f"{weakest} 방어높이 {effective}cm 를 초과합니다.")
+        if unknown_openings:
+            reason += f" ({unknown_openings[0]} 상태는 확인하지 못했습니다.)"
+        return {**base, "status": "유입가능", "reason": reason,
+                "inflow_cm": round(flood_depth_cm - effective, 1),
+                # 행안부 고시 제23조: 예상 침수 높이 이상의 여유고 확보
+                "need_barrier_cm": round(flood_depth_cm, 1)}
 
-    return {
-        "status": "방어가능",
-        "reason": f"{weakest} 방어높이 {effective}cm 가 "
-                  f"예상침수심 {flood_depth_cm:g}cm 이상입니다.",
-        "effective_defense_cm": effective,
-        "weakest_point": weakest,
-        "inflow_cm": 0.0,
-        "need_barrier_cm": None,
-    }
+    # 아는 개구부는 방어되지만, 모르는 개구부가 최약점일 수 있다.
+    if unknown_openings:
+        u = unknown_openings[0]
+        return {**base, "status": "확인필요",
+                "reason": (f"{weakest} 방어높이 {effective}cm 는 예상침수심 "
+                           f"{flood_depth_cm:g}cm 이상이지만, {u} 상태를 확인하지 못해 "
+                           f"방어 가능 여부를 결론지을 수 없습니다.")}
+
+    return {**base, "status": "방어가능",
+            "reason": (f"{weakest} 방어높이 {effective}cm 가 "
+                       f"예상침수심 {flood_depth_cm:g}cm 이상입니다."),
+            "inflow_cm": 0.0}
 
 
 # ─────────────────────────────────────────────────────────────
