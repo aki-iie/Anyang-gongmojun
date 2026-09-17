@@ -154,10 +154,14 @@ function validateAndBuild(body) {
       surface: {
         status: surface.status,
         reason: str(surface.reason, 300),
+        // 예상침수심(flood.depthCm)과 방어높이를 따로 저장한다.
+        // 둘의 차이는 저장하지 않는다 — 정보가 늘지 않고, SEG_DEPTH_CM·환산 규칙이
+        // 개정되면 행마다 정의가 달라져 종단 분석이 오염된다. 필요하면 쓰는 시점에 계산한다.
         effectiveDefenseCm: num(surface.effectiveDefenseCm),
         weakestPoint: str(surface.weakestPoint, 10),
-        inflowCm: num(surface.inflowCm),
         needBarrierCm: num(surface.needBarrierCm),
+        // 비대칭 판정에서 '확인필요'가 나온 이유. 공무원이 무엇을 확인해야 하는지가 여기 있다.
+        unknownOpenings: strList(surface.unknownOpenings, 10, 2),
       },
       backflow: {
         status: backflow.status,

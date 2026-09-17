@@ -49,7 +49,6 @@ export interface SurfaceResult {
   reason: string;
   effectiveDefenseCm: number | null;
   weakestPoint: '현관' | '창문' | null;
-  inflowCm: number | null;
   needBarrierCm: number | null;
   unknownOpenings: ('현관' | '창문')[];
 }
@@ -184,10 +183,16 @@ function diagnoseSurface(
     (n) => known[n] === undefined,
   );
 
+  // 예상침수심 - 방어높이 의 차이값은 내보내지 않는다.
+  //   1. 정보가 늘지 않는다. 호출측에 예상침수심과 effectiveDefenseCm 이 모두 있다.
+  //   2. 그 차이는 '실내 유입 깊이'가 아니다. 반지하는 실내 바닥이 지면보다 낮아
+  //      침수가 지속되면 실내 수위가 외부 수위를 따라가므로 차이값은 오히려 과소평가다.
+  //   3. SEG_DEPTH_CM 이 가정값이고 배수 상태도 시나리오 하나라, 1cm 단위 연속값은
+  //      없는 정밀도를 주장한다. 판정은 계단 함수여서 이 불확실성을 견디지만 연속값은 못 견딘다.
+  // 학습용 파생 피처가 필요하면 저장하지 말고 그 시점에 계산한다.
   const base = {
     effectiveDefenseCm: null as number | null,
     weakestPoint: null as '현관' | '창문' | null,
-    inflowCm: null as number | null,
     needBarrierCm: null as number | null,
     unknownOpenings,
   };
@@ -226,7 +231,6 @@ function diagnoseSurface(
       ...base,
       status: '유입가능',
       reason,
-      inflowCm: round1(floodDepthCm - effective),
       // 행안부 고시 제23조: 예상 침수 높이 이상의 여유고 확보
       needBarrierCm: round1(floodDepthCm),
     };
@@ -246,7 +250,6 @@ function diagnoseSurface(
     ...base,
     status: '방어가능',
     reason: `${weakest} 방어높이 ${effective}cm 가 예상침수심 ${floodDepthCm}cm 이상입니다.`,
-    inflowCm: 0,
     needBarrierCm: null,
   };
 }

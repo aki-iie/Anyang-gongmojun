@@ -145,10 +145,16 @@ def _diagnose_surface(slots: Dict[str, Any],
         known["창문"] = window_def
     unknown_openings = [n for n in ("현관", "창문") if n not in known]
 
+    # 예상침수심 - 방어높이 의 차이값은 내보내지 않는다.
+    #   1. 정보가 늘지 않는다. 호출측에 예상침수심과 effective_defense_cm 이 모두 있다.
+    #   2. 그 차이는 '실내 유입 깊이'가 아니다. 반지하는 실내 바닥이 지면보다 낮아
+    #      침수가 지속되면 실내 수위가 외부 수위를 따라가므로 차이값은 오히려 과소평가다.
+    #   3. SEG_DEPTH_CM 이 가정값이고 배수 상태도 시나리오 하나라, 1cm 단위 연속값은
+    #      없는 정밀도를 주장한다. 판정은 계단 함수여서 이 불확실성을 견디지만 연속값은 못 견딘다.
+    # 학습용 파생 피처가 필요하면 저장하지 말고 그 시점에 계산한다.
     base = {
         "effective_defense_cm": None,
         "weakest_point": None,
-        "inflow_cm": None,
         "need_barrier_cm": None,
         "unknown_openings": unknown_openings,
     }
@@ -173,7 +179,6 @@ def _diagnose_surface(slots: Dict[str, Any],
         if unknown_openings:
             reason += f" ({unknown_openings[0]} 상태는 확인하지 못했습니다.)"
         return {**base, "status": "유입가능", "reason": reason,
-                "inflow_cm": round(flood_depth_cm - effective, 1),
                 # 행안부 고시 제23조: 예상 침수 높이 이상의 여유고 확보
                 "need_barrier_cm": round(flood_depth_cm, 1)}
 
@@ -187,8 +192,7 @@ def _diagnose_surface(slots: Dict[str, Any],
 
     return {**base, "status": "방어가능",
             "reason": (f"{weakest} 방어높이 {effective}cm 가 "
-                       f"예상침수심 {flood_depth_cm:g}cm 이상입니다."),
-            "inflow_cm": 0.0}
+                       f"예상침수심 {flood_depth_cm:g}cm 이상입니다.")}
 
 
 # ─────────────────────────────────────────────────────────────

@@ -47,7 +47,6 @@ def test_case1_typical_vulnerable():
     # 창문(3cm)이 현관(5cm)보다 낮으므로 창문이 최약점
     assert r["surface"]["weakest_point"] == "창문"
     assert r["surface"]["effective_defense_cm"] == 3
-    assert r["surface"]["inflow_cm"] == 47.0
     assert r["surface"]["need_barrier_cm"] == 50.0
 
     assert r["backflow"]["status"] == "매우미흡"
@@ -69,7 +68,6 @@ def test_case2_all_unknown():
 
     assert r["surface"]["status"] == "확인필요"
     assert r["surface"]["effective_defense_cm"] is None
-    assert r["surface"]["inflow_cm"] is None
 
     assert r["backflow"]["status"] == "확인필요"
     assert r["backflow"]["signal_count"] == 0
@@ -101,7 +99,6 @@ def test_case3_fully_protected():
     # 현관 15+30=45, 창문 20+30=50 -> 실효 45cm > 침수심 40cm
     assert r["surface"]["status"] == "방어가능"
     assert r["surface"]["effective_defense_cm"] == 45
-    assert r["surface"]["inflow_cm"] == 0.0
     assert r["surface"]["need_barrier_cm"] is None
 
     assert r["backflow"]["status"] == "양호"
@@ -129,7 +126,6 @@ def test_case4_no_flood_data():
 
     assert r["surface"]["status"] == "확인필요"
     assert r["surface"]["effective_defense_cm"] == 3   # 창문이 최약점
-    assert r["surface"]["inflow_cm"] is None
 
     # 역류는 침수심과 무관하므로 정상 판정되어야 한다
     assert r["backflow"]["status"] == "미흡"
@@ -158,7 +154,6 @@ def test_case5_window_is_weakest():
     assert r["surface"]["weakest_point"] == "창문"
     assert r["surface"]["effective_defense_cm"] == 0
     assert r["surface"]["status"] == "유입가능"
-    assert r["surface"]["inflow_cm"] == 30.0
 
     # 밸브가 있어도 실제 역류 경험이 있으면 매우미흡으로 확정
     assert r["backflow"]["status"] == "매우미흡"
@@ -207,7 +202,8 @@ def test_case7_partial_unknown_but_inflow_certain():
     r = diagnose(slots, flood_depth_cm=30.0)
 
     assert r["surface"]["status"] == "유입가능"
-    assert r["surface"]["inflow_cm"] == 25.0
+    assert r["surface"]["effective_defense_cm"] == 5
+    assert r["surface"]["need_barrier_cm"] == 30.0
     assert r["surface"]["unknown_openings"] == ["창문"]
     assert "확인하지 못했습니다" in r["surface"]["reason"]
     print("  CASE 7 통과 — 한쪽만으로 유입 확정 시 미확인과 무관하게 판정")
@@ -258,6 +254,30 @@ def test_deterministic():
     print("  부가 통과 — 동일 입력 100회 재현성 확인")
 
 
+# ══════════════════════════════════════════════════════════════
+# 부가: 예상침수심 - 방어높이 차이값을 내보내지 않는다
+#   두 입력을 따로 두고 차이는 쓰는 시점에 계산한다.
+#   저장하면 SEG_DEPTH_CM 과 환산 규칙이 개정될 때 행마다 정의가 달라진다.
+# ══════════════════════════════════════════════════════════════
+def test_no_derived_inflow_column():
+    cases = [
+        # (침수심, 슬롯, 기대 status)
+        (50.0, dict(entrance_sill="카드보다낮음", water_panel="미설치",
+                    window_base="땅보다낮음", window_barrier="미설치"), "유입가능"),
+        (40.0, dict(entrance_sill="카드보다높음", water_panel="설치",
+                    window_base="땅보다높음", window_barrier="설치"), "방어가능"),
+        (30.0, dict(entrance_sill="unknown", water_panel="unknown",
+                    window_base="unknown", window_barrier="unknown"), "확인필요"),
+    ]
+    for depth, extra, expected in cases:
+        r = diagnose(base(**extra), flood_depth_cm=depth)
+        assert r["surface"]["status"] == expected, r["surface"]["status"]
+        assert "inflow_cm" not in r["surface"], "차이값 컬럼이 되살아났다"
+        # 두 입력은 따로 남아 있어야 한다 (차이는 여기서 재계산 가능)
+        assert "effective_defense_cm" in r["surface"]
+    print("  부가 통과 — 차이값 컬럼 부재 및 두 입력 분리 보존")
+
+
 if __name__ == "__main__":
     print("\n판정 엔진 단위 테스트")
     print("=" * 52)
@@ -272,6 +292,7 @@ if __name__ == "__main__":
         test_case8_both_known_both_safe,
         test_invalid_enum_rejected,
         test_deterministic,
+        test_no_derived_inflow_column,
     ]
     failed = 0
     for t in tests:

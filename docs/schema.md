@@ -50,7 +50,7 @@ diagnoses/{docId}
   flood:    { covered, inMap, seg, predCm, traceCm, depthCm, basis },
   slots:    { entrance_sill: '없음', ... },       // 답한 12슬롯만
   diagnosis: {
-    surface:  { status, reason, effectiveDefenseCm, weakestPoint, inflowCm, needBarrierCm },
+    surface:  { status, reason, effectiveDefenseCm, weakestPoint, needBarrierCm, unknownOpenings },
     backflow: { status, signals, signalCount, experienced },
     warnings: string[],
     actions:  string[],                           // 항목명만

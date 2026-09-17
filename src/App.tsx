@@ -1029,12 +1029,10 @@ ${answered || '- 없음'}`,
                       <dd style={css('margin:0')}>{dx.surface.weakestPoint} · 방어높이 {dx.surface.effectiveDefenseCm}cm</dd>
                     </>
                   )}
-                  {!!dx.surface.inflowCm && (
-                    <>
-                      <dt style={css('color:var(--color-neutral-600)')}>부족한 높이</dt>
-                      <dd style={css(`margin:0;color:${TONE_COLOR.danger};font-weight:600`)}>{dx.surface.inflowCm}cm</dd>
-                    </>
-                  )}
+                  {/* 침수심 - 방어높이 차이값은 표시하지 않는다.
+                      실내 유입 깊이가 아니고(반지하는 실내 바닥이 지면보다 낮다),
+                      침수심 자체가 가정값이라 1cm 단위 표기는 없는 정밀도를 주장한다.
+                      위 두 줄에 침수심과 방어높이가 각각 있으므로 비교는 그대로 읽힌다. */}
                 </dl>
                 {!flood && (
                   <p style={sx('margin:0;font-size:15px;color:var(--color-neutral-600)', 'margin:0;font-size:12.5px;color:var(--color-neutral-600)')}>1단계에서 주소나 위치를 확인하면 침수심을 넣어 판정할 수 있어요.</p>
