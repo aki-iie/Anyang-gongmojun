@@ -7,7 +7,7 @@ import { lookupFlood, getCurrentPosition, coordsFromUrl, locationHelp, GeoError 
 import { searchAddress, geocodeAddress } from './sync/address';
 import FloodMap from './FloodMap';
 import type { FloodResult } from './sync/flood';
-import { SLOTS, SLOT_PHOTO, SLOT_NAME, STATUS_TONE, EXAMPLES, CONTACT, CONSENT, STATS_NOTE } from './content';
+import { SLOTS, SLOT_PHOTO, SLOT_NAME, STATUS_TONE, EXAMPLES, CONTACT, CONSENT, STATS_NOTE, DISCLAIMER } from './content';
 import { analyzeHousePhotos, sendChatMessage, extractSlot, answerSlotQuestion } from './sync/openai';
 import type { SlotId } from './sync/openai';
 /* 12문항 명세와 판정 엔진 — 차동현 담당 파일. 여기서는 불러 쓰기만 한다. */
@@ -16,8 +16,9 @@ import type { SlotSpec } from '../functions/src/prompt';
 import { diagnose } from './utils/diagnose';
 import type { Slots, DiagnoseResult } from './utils/diagnose';
 import { saveDiagnosis, buildPayload, sendStats } from './sync/save';
+import Admin from './Admin';
 
-type Screen = 'landing' | 'upload' | 'chat' | 'result';
+type Screen = 'landing' | 'upload' | 'chat' | 'result' | 'admin';
 
 /* label 은 저장·요약용 문구, display 는 버튼에만 보이는 문구(확인 질문의 "맞아요") */
 type Option = { label: string; value: string; display?: string };
@@ -62,7 +63,7 @@ const STEPS = [
   { n: '1', title: '집 사진 3장 찍기', body: '현관 턱, 창문, 집 앞 골목. 안내대로 찍으면 됩니다.' },
   { n: '2', title: '몇 가지 질문에 답하기', body: '정확한 진단을 위해 챗봇과 대화하세요' },
   { n: '3', title: '위험 진단 확인', body: '예상 침수지도와 실제 침수 기록으로 물이 들어올 길을 따져 봅니다.' },
-  { n: '4', title: '자동화된 지원 접수', body: '차수판·물막이판 설치를 구청에 바로 신청합니다.' },
+  { n: '4', title: '결과 남기기 (선택)', body: '동의하시면 익명으로 저장돼 지역별 침수 위험 통계에 반영됩니다.' },
 ];
 
 export default function App() {
@@ -79,7 +80,7 @@ export default function App() {
   const [floodHelp, setFloodHelp] = useState(false);   // 위치 켜는 법을 펼칠지
   const [detail, setDetail] = useState('');            // 상세주소 (지하 1층 등)
   const [addrBusy, setAddrBusy] = useState(false);
-  const [screen, setScreen] = useState<Screen>('landing');
+  const [screen, setScreen] = useState<Screen>(() => window.location.pathname === '/admin' ? 'admin' : 'landing');
   const [photos, setPhotos] = useState<(string | null)[]>([null, null, null]);
   const [address, setAddress] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -249,8 +250,8 @@ export default function App() {
     commitAnswer(p.i, '잘 모르겠어요 (건너뜀)', UNKNOWN, true);
   };
 
-  const goHome = (e: MouseEvent<HTMLAnchorElement>) => {
-    e.preventDefault();
+  const goHome = (e?: MouseEvent<HTMLElement>) => {
+    if (e) e.preventDefault();
     clearTimers();
     setScreen('landing'); setMessages([]); setWaiting(false);
     setSlots({}); setSlotLabels({}); setTicket(''); setConsentOpen(false); setC1(false); setC2(false);
@@ -259,6 +260,15 @@ export default function App() {
     setResultChat([]); setResultInput(''); setResultWaiting(false);
     setFlood(null); setFloodErr(''); setFloodBusy(false); setFloodPos(null); setFloodHelp(false);
     setDetail(''); setAddrBusy(false);
+    if (window.location.pathname === '/admin') window.history.pushState({}, '', '/');
+    window.scrollTo(0, 0);
+  };
+
+  const goAdmin = (e?: MouseEvent<HTMLElement>) => {
+    if (e) e.preventDefault();
+    clearTimers();
+    setScreen('admin');
+    if (window.location.pathname !== '/admin') window.history.pushState({}, '', '/admin');
     window.scrollTo(0, 0);
   };
 
@@ -442,7 +452,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
-  /* 지원 접수 — 동의 두 건을 받은 뒤에만 호출된다.
+  /* 진단 결과 저장 — 동의 두 건을 받은 뒤에만 호출된다.
      서버(/api/save)가 위험 판정·동의·좌표를 다시 검사하고 Firestore 에 남긴 뒤 접수번호를 준다.
      사진은 보내지 않는다. */
   const submitSupport = async () => {
@@ -642,17 +652,40 @@ ${answered || '- 없음'}`,
 
   return (
     <div style={css('position:relative;min-height:100vh;display:flex;flex-direction:column;overflow-x:clip')}>
-      <header style={sx('display:flex;align-items:center;gap:16px;padding:28px 48px;position:relative;z-index:1;flex-wrap:wrap', 'display:flex;align-items:center;gap:10px;padding:16px 20px 10px;position:relative;z-index:1;flex-wrap:wrap')}>
-        <a href="#" onClick={goHome} style={css('display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit')}>
-          <svg width={isMobile ? 34 : 44} height={isMobile ? 34 : 44} viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M7 27 Q10 24 14 27 T22 27 T30 27 T33 27 V33 H7 Z" fill="var(--color-accent-200)"></path><path d="M6 20 L20 7 L34 20 V34 H6 Z" stroke="currentColor" strokeWidth="2.4" strokeLinejoin="round"></path><path d="M4 26 Q8 23 12 26 T20 26 T28 26 T36 26" stroke="var(--color-accent)" strokeWidth="2.4" strokeLinecap="round"></path></svg>
-          <span style={sx('font-weight:700;font-size:30px;letter-spacing:-0.02em;line-height:1', 'font-weight:700;font-size:24px;letter-spacing:-0.02em;line-height:1')}>잠길까</span>
-        </a>
-        <span style={sx('margin-left:auto;color:var(--color-neutral-600);font-size:17px', 'margin-left:auto;color:var(--color-neutral-600);font-size:12px')}>안양시 반지하 침수 위험 진단 · 시범 서비스</span>
+      <header style={sx('display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:28px 48px;position:relative;z-index:1;flex-wrap:wrap', 'display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:16px 20px 10px;position:relative;z-index:1;flex-wrap:wrap')}>
+        <div style={css('display:flex;flex-direction:column;align-items:flex-start;gap:6px')}>
+          <a href="#" onClick={goHome} style={css('display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit')}>
+            <svg width={isMobile ? 34 : 44} height={isMobile ? 34 : 44} viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M7 27 Q10 24 14 27 T22 27 T30 27 T33 27 V33 H7 Z" fill="var(--color-accent-200)"></path><path d="M6 20 L20 7 L34 20 V34 H6 Z" stroke="currentColor" strokeWidth="2.4" strokeLinejoin="round"></path><path d="M4 26 Q8 23 12 26 T20 26 T28 26 T36 26" stroke="var(--color-accent)" strokeWidth="2.4" strokeLinecap="round"></path></svg>
+            <span style={sx('font-weight:700;font-size:30px;letter-spacing:-0.02em;line-height:1', 'font-weight:700;font-size:24px;letter-spacing:-0.02em;line-height:1')}>잠길까</span>
+          </a>
+          {screen !== 'admin' ? (
+            <button
+              type="button"
+              onClick={goAdmin}
+              style={css('display:inline-flex;align-items:center;gap:4px;padding:3px 8px;font-size:11px;font-weight:600;color:var(--color-neutral-700);background:var(--color-neutral-100,#f1f5f9);border:1px solid var(--color-neutral-300,#cbd5e1);border-radius:6px;cursor:pointer;line-height:1.2;transition:all 0.15s ease')}
+              title="관리자용 페이지 (12문항 원문 데이터 및 CSV 다운로드)"
+            >
+              <span style={{ fontSize: '11px' }}>⚙️</span> 관리자용 페이지
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={goHome}
+              style={css('display:inline-flex;align-items:center;gap:4px;padding:3px 8px;font-size:11px;font-weight:600;color:var(--color-neutral-700);background:var(--color-neutral-100,#f1f5f9);border:1px solid var(--color-neutral-300,#cbd5e1);border-radius:6px;cursor:pointer;line-height:1.2;transition:all 0.15s ease')}
+              title="일반 사용자 진단 화면으로 돌아가기"
+            >
+              <span>←</span> 일반 사용자 화면
+            </button>
+          )}
+        </div>
+        <span style={sx('margin-left:auto;color:var(--color-neutral-600);font-size:17px;align-self:center', 'margin-left:auto;color:var(--color-neutral-600);font-size:12px;align-self:flex-start;padding-top:4px')}>안양시 반지하 침수 위험 진단 · 시범 서비스</span>
       </header>
 
       <main style={sx('flex:1;position:relative;z-index:1;width:100%;max-width:1120px;margin:0 auto;padding:0 48px 300px;box-sizing:border-box', 'flex:1;position:relative;z-index:1;width:100%;margin:0 auto;padding:0 20px 140px;box-sizing:border-box')}>
         <input type="file" accept="image/*" multiple ref={fileRef} onChange={onFiles} style={{ display: 'none' }} />
         <input type="file" accept="image/*" capture="environment" ref={cameraRef} onChange={onFiles} style={{ display: 'none' }} />
+
+        {screen === 'admin' && <Admin />}
 
         {screen === 'landing' && isMobile && (
           <section style={css('display:flex;flex-direction:column;min-height:calc(100dvh - 130px);padding-top:32px;gap:18px')}>
@@ -1145,20 +1178,20 @@ ${answered || '- 없음'}`,
             {needsSupport && (
               <div style={sx('background:var(--color-surface);padding:38px 42px;border-radius:8px;display:grid;grid-template-columns:1fr auto;gap:36px;align-items:center', 'background:var(--color-surface);padding:20px 18px;border-radius:12px;display:flex;flex-direction:column;gap:16px')}>
                 <div style={css('display:flex;flex-direction:column;gap:12px')}>
-                  <h3 style={sx('font-size:28px;margin:0', 'font-size:20px;margin:0')}>지원이 필요한 수준이에요</h3>
-                  <p style={sx('font-size:20px;margin:0;color:var(--color-neutral-700);text-wrap:pretty', 'font-size:14px;margin:0;color:var(--color-neutral-700);text-wrap:pretty')}>안양시 담당 부서에 직접 연락하거나, 버튼 하나로 바로 접수할 수 있어요. 접수하면 담당 공무원이 우선순위를 검토해 창문 차수막 같은 지원 품목 설치를 안내합니다.</p>
+                  <h3 style={sx('font-size:28px;margin:0', 'font-size:20px;margin:0')}>물이 들어올 수 있는 구조예요</h3>
+                  <p style={sx('font-size:20px;margin:0;color:var(--color-neutral-700);text-wrap:pretty', 'font-size:14px;margin:0;color:var(--color-neutral-700);text-wrap:pretty')}>진단 결과를 익명으로 남겨 두면 지역별 침수 위험 통계에 반영됩니다. 궁금한 점은 아래 번호로 직접 문의하실 수 있어요.</p>
                   <p style={sx('font-size:32px;font-weight:600;margin:6px 0 0;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap', 'font-size:22px;font-weight:600;margin:4px 0 0;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap')}>
                     {CONTACT.phone} <span style={css('font-size:17px;font-weight:400;color:var(--color-neutral-600)')}>{CONTACT.dept}</span>
                   </p>
                 </div>
                 {ticket ? (
                   <div style={sx('display:flex;flex-direction:column;gap:6px;text-align:right', 'display:flex;flex-direction:column;gap:4px')}>
-                    <span style={css('font-size:26px;font-weight:600;color:var(--color-accent-700)')}>접수 완료</span>
-                    <span style={css('font-size:19px')}>접수번호 {ticket}</span>
-                    <span style={css('font-size:17px;color:var(--color-neutral-600)')}>담당 공무원이 확인 후 연락드립니다.</span>
+                    <span style={css('font-size:26px;font-weight:600;color:var(--color-accent-700)')}>저장 완료</span>
+                    <span style={css('font-size:19px')}>기록번호 {ticket}</span>
+                    <span style={css('font-size:17px;color:var(--color-neutral-600)')}>지역별 침수 위험 통계에 반영됩니다.</span>
                   </div>
                 ) : (
-                  <button className="btn btn-primary" onClick={() => setConsentOpen(true)} style={sx('font-size:25px;padding:24px 36px;min-height:88px;border-radius:8px;box-shadow:var(--shadow-md)', 'font-size:19px;padding:18px;min-height:68px;border-radius:12px;width:100%;box-sizing:border-box;box-shadow:var(--shadow-md)')}>자동으로 지원 접수하기</button>
+                  <button className="btn btn-primary" onClick={() => setConsentOpen(true)} style={sx('font-size:25px;padding:24px 36px;min-height:88px;border-radius:8px;box-shadow:var(--shadow-md)', 'font-size:19px;padding:18px;min-height:68px;border-radius:12px;width:100%;box-sizing:border-box;box-shadow:var(--shadow-md)')}>진단 결과 남기기</button>
                 )}
               </div>
             )}
@@ -1166,7 +1199,7 @@ ${answered || '- 없음'}`,
             {!needsSupport && (
               <p style={sx('font-size:20px;color:var(--color-neutral-700);margin:0;text-wrap:pretty', 'font-size:15px;color:var(--color-neutral-700);margin:0;text-wrap:pretty')}>{uncertain
                 ? '확인하지 못한 항목이 있어 지원 필요 여부를 확정하지 못했어요. 확인되는 대로 다시 진단해 주세요.'
-                : '지금 답변으로는 설치 지원이 필요한 수준은 아니에요. 큰 비 예보가 있으면 다시 확인해 주세요.'}</p>
+                : '지금 답변으로는 물이 들어올 경로가 뚜렷하지 않아요. 다만 비가 얼마나 와야 잠기는지까지는 알 수 없으니, 큰 비 예보가 있으면 직접 확인해 주세요.'}</p>
             )}
 
             {/* 결과에 대한 후속 대화 */}
@@ -1220,7 +1253,10 @@ ${answered || '- 없음'}`,
             </div>
 
             <p style={sx('margin:0;font-size:15px;line-height:1.6;color:var(--color-neutral-600);max-width:780px', 'margin:0;font-size:12.5px;line-height:1.6;color:var(--color-neutral-600)')}>
-              {STATS_NOTE}{ticket ? ' 접수하신 건은 동의하신 범위에서 주소와 함께 안양시에 전달됩니다.' : ''}
+              {DISCLAIMER}
+            </p>
+            <p style={sx('margin:0;font-size:15px;line-height:1.6;color:var(--color-neutral-600);max-width:780px', 'margin:0;font-size:12.5px;line-height:1.6;color:var(--color-neutral-600)')}>
+              {STATS_NOTE}
             </p>
             <a href="#" onClick={goHome} style={css('font-size:20px;align-self:flex-start')}>처음으로 돌아가기</a>
           </section>

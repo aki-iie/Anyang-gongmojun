@@ -37,6 +37,20 @@
         }
       },
       {
+        "source": "/api/admin/export",
+        "function": {
+          "functionId": "adminExport",
+          "region": "asia-northeast3"
+        }
+      },
+      {
+        "source": "/api/admin/update",
+        "function": {
+          "functionId": "adminUpdate",
+          "region": "asia-northeast3"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

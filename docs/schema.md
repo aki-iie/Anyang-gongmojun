@@ -57,6 +57,15 @@ diagnoses/{docId}
     quality:  { unknownCount, totalSlots, reliable }
   },
   level: '위험'|'주의'|'확인필요'|'안전',          // 서버 파생
+
+  // ── 공무원용 평탄화 요약 (콘솔에서 바로 읽고 정렬하기 위한 사본) ──
+  summary: '충훈동 · 현관으로 33cm 유입 예상 · 역류 대비 미흡 · 필요: 현관 물막이판 설치',
+  dong, surfaceStatus, backflowStatus,
+  inflowCm,        // ★ 정렬 키. 침수심 − 방어높이. 클수록 급하다. null 이면 미확정
+  defenseCm, weakestPoint, depthCm, needBarrierCm,
+  needs: ['현관 물막이판 설치', ...],            // array-contains 로 품목별 필터
+  reliable, unknownCount,
+
   consent: { provide: true, priority: true },
   status: '미확인'|'확인중'|'지원연계완료',
   ticket: 'AY-######',                            // 서버 발급, 사용자 화면에 표시
@@ -77,6 +86,7 @@ stats/{docId}
   level, surface, backflow,                        // 판정 결과
   grid: { id: '100m_41507_112281', lat, lon, cellM: 100 } | null,   // 셀 중심 좌표
   dong, dongCode,                                  // 행정동 (수천 세대 단위라 식별정보 아님)
+  inflowCm, defenseCm, weakestPoint, needs,        // 집계용 — 동별 필요 설비 수량이 여기서 나온다
   district: '만안구'|'동안구'|null,
   depthCm, predCm, traceCm, basis, inMap, covered,
   slots: { ... },                                  // 집 구조 답변 (식별 불가)
@@ -99,6 +109,24 @@ stats/{docId}
 
 보유·이용 기간은 **접수일로부터 1년**으로 확정했다(2026-09-16, 팀 결정). 바꿔야 하면
 `src/content.ts` 의 `CONSENT.table` 한 줄만 고치면 화면과 문서가 같이 따라간다.
+
+## 공무원이 읽는 법 — 통합 점수를 만들지 않은 이유
+
+0~100 위험 점수는 **의도적으로 만들지 않았다.** 배점 근거가 없어 "이 가중치는 어디서
+나왔나"에 답할 수 없고, 그건 이 프로젝트가 판정 엔진에서 이미 버린 접근이다.
+
+대신 **이미 물리적으로 계산된 값을 정렬 키로 올렸다.**
+
+| 필드 | 뜻 | 쓰는 법 |
+|---|---|---|
+| `inflowCm` | 예상침수심 − 실효 방어높이 | **내림차순 정렬 = 급한 순.** 발명한 숫자가 아니라 cm |
+| `needs` | 필요 설비 항목명 배열 | `array-contains '현관 물막이판 설치'` 로 품목별 집계 |
+| `summary` | 한 줄 한국어 요약 | 목록에서 펼치지 않고 바로 읽음 |
+| `reliable` | unknown ≤ 3 인가 | `false` 는 문진을 덜 채운 건. 우선순위에서 내릴 근거 |
+| `level` | 위험/주의/확인필요/안전 | 1차 필터 |
+
+`inflowCm` 이 `null` 인 건은 `확인필요` 라 정렬에서 빠진다. 이건 결함이 아니라 설계다 —
+모르는 것을 숫자로 만들어 줄 세우면 그 순간 근거 없는 점수가 된다.
 
 ## 코드 위치
 
@@ -130,8 +158,7 @@ stats/{docId}
   카운터 문서를 두거나 docId 를 쓰면 된다.
 - **중복 기록.** 같은 사람이 두 번 진단하면 `stats` 에 두 건이 남는다. 세션 단위
   중복 제거는 하지 않았다 — 집계에서 격자별로 보면 큰 문제가 아니다.
-- **관리자 대시보드(`/admin`)가 없다.** 지금은 Firebase 콘솔에서 본다. 규칙상 읽기는
-  `admin: true` 커스텀 클레임 계정만 되므로 대시보드를 붙일 때 계정 발급이 같이 필요하다.
+- **관리자 대시보드(`/admin`) 연동.** Firebase 콘솔 외에도 공무원이 접근하기 쉽도록 `/admin` 페이지와 CSV 다운로드 기능을 추가했다. `functions/.env`의 `ADMIN_SECRET`을 통해 비밀번호로 인증하며, 서버가 JSON과 Excel용 CSV(UTF-8 BOM)를 내보내 준다.
 
 ## 배포
 

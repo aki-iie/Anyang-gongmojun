@@ -260,3 +260,71 @@ exports.stats = onRequest(
     }
   }
 );
+
+
+/* ────────────────────────────────────────────────────────────
+   어드민 수출 API — 접수된 모든 진단을 JSON이나 CSV로 반환한다.
+   관리자 비밀번호가 있어야만 작동한다.
+   GET /api/admin/export?password=...&format=csv
+   ──────────────────────────────────────────────────────────── */
+const { exportDiagnoses, updateDiagnosisFloodStatus } = require('./admin');
+
+exports.adminExport = onRequest(
+  { region: 'asia-northeast3', memory: '256MiB', timeoutSeconds: 30, maxInstances: 5, cors: ALLOWED_ORIGINS },
+  async (req, res) => {
+    if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+    if (req.method !== 'GET') { res.status(405).json({ error: 'GET only' }); return; }
+
+    const origin = req.headers.origin;
+    if (origin && !ALLOWED_ORIGINS.includes(origin)) { res.status(403).json({ error: 'origin not allowed' }); return; }
+
+    try {
+      const result = await exportDiagnoses(req.query.password, req.query.format);
+      if (result.type === 'csv') {
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="diagnoses.csv"');
+        res.status(200).send(result.data);
+      } else {
+        res.status(200).json(result.data);
+      }
+    } catch (err) {
+      if (err.status === 401) {
+        res.status(401).json({ error: 'Unauthorized' });
+      } else {
+        console.error('어드민 내보내기 실패:', err);
+        res.status(500).json({ error: '어드민 내보내기 중 오류가 발생했습니다' });
+      }
+    }
+  }
+);
+
+/* ────────────────────────────────────────────────────────────
+   어드민 침수 여부 수정 API — 공무원이 실제 침수 여부를 갱신한다.
+   POST /api/admin/update
+   Body: { password: "...", id: "...", actualFlooded: "flooded"|"safe"|"unconfirmed", floodNote: "..." }
+   ──────────────────────────────────────────────────────────── */
+exports.adminUpdate = onRequest(
+  { region: 'asia-northeast3', memory: '256MiB', timeoutSeconds: 30, maxInstances: 5, cors: ALLOWED_ORIGINS },
+  async (req, res) => {
+    if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+    if (req.method !== 'POST') { res.status(405).json({ error: 'POST only' }); return; }
+
+    const origin = req.headers.origin;
+    if (origin && !ALLOWED_ORIGINS.includes(origin)) { res.status(403).json({ error: 'origin not allowed' }); return; }
+
+    try {
+      const { password, id, actualFlooded, floodNote } = req.body || {};
+      const result = await updateDiagnosisFloodStatus(password, { id, actualFlooded, floodNote });
+      res.status(200).json(result);
+    } catch (err) {
+      if (err.status === 401) {
+        res.status(401).json({ error: 'Unauthorized' });
+      } else if (err.status === 400) {
+        res.status(400).json({ error: err.message });
+      } else {
+        console.error('침수 상태 업데이트 실패:', err);
+        res.status(500).json({ error: '업데이트 중 오류가 발생했습니다' });
+      }
+    }
+  }
+);

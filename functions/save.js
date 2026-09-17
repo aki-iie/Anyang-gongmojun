@@ -79,6 +79,47 @@ function gridOf(lat, lon) {
   };
 }
 
+/* ────────────────────────────────────────────────────────────
+   공무원 요약 — Firebase 콘솔에서 바로 읽고 정렬하기 위한 평탄화 필드.
+
+   왜 필요한가
+     중첩된 diagnosis.surface.inflowCm 는 콘솔 목록에서 보이지 않고 정렬도 안 된다.
+     공무원은 수십 건 중 "어느 집이 더 급한가" 를 가려야 하는데, 지금 문서는
+     그걸 사람이 매번 펼쳐 읽어야 알 수 있다.
+
+   ⚠ 새로운 위험 점수를 만들지 않는다.
+     0~100 같은 통합 점수는 배점 근거가 없어 이 프로젝트가 의도적으로 버린 것이다.
+     대신 이미 물리적으로 계산된 값(초과 유입량 cm)을 정렬 키로 그대로 올린다.
+     cm 는 발명한 숫자가 아니라 침수심에서 방어높이를 뺀 실측 단위라 방어할 수 있다.
+   ──────────────────────────────────────────────────────────── */
+
+/** 필요 설비 — 엔진이 만든 조치 항목명을 그대로 쓴다(diagnose.ts buildActions).
+    Firestore 의 array-contains 로 "물막이판이 필요한 집" 만 거를 수 있다. */
+const NEED_LABELS = ['현관 물막이판 설치', '창문 차수막 설치', '역류방지밸브 설치', '빗물받이 준설 신고'];
+
+/** 콘솔 목록에서 한 줄로 읽히는 요약문 */
+function buildSummary(dong, surface, backflow, needs) {
+  const where = dong || '위치 미상';
+  const inflow = (typeof surface.inflowCm === 'number' && Number.isFinite(surface.inflowCm))
+    ? surface.inflowCm : null;
+  let head;
+  if (surface.status === '유입가능') {
+    const pt = surface.weakestPoint ? `${surface.weakestPoint}으로 ` : '';
+    head = inflow !== null ? `${pt}${inflow}cm 유입 예상` : `${pt}유입 예상`;
+  } else if (surface.status === '방어가능') {
+    head = '지표 유입은 방어 가능';
+  } else {
+    head = '지표 유입 확인필요';
+  }
+
+  const parts = [where, head];
+  if (backflow.status === '매우미흡' || backflow.status === '미흡') {
+    parts.push(`역류 대비 ${backflow.status}`);
+  }
+  if (needs.length) parts.push(`필요: ${needs.join(' / ')}`);
+  return parts.join(' · ');
+}
+
 /** 접수번호 — 화면 표기와 같은 AY-###### 형식 */
 function makeTicket() {
   return 'AY-' + String(Math.floor(100000 + Math.random() * 900000));
@@ -127,7 +168,11 @@ function validateAndBuild(body) {
 
   const flood = b.flood || {};
 
-  return {
+  /* 엔진이 만든 조치 항목만 남긴다. 모르는 문구는 버려 콘솔 필터가 흔들리지 않게 한다. */
+  const needs = strList((dx.actions || []).map((a) => (a && a.item) || ''), 60, 8)
+    .filter((x) => NEED_LABELS.includes(x));
+
+  const doc = {
     location: {
       lat, lon,
       address,                          // 도로명주소 (지오코더가 정제한 값)
@@ -167,7 +212,7 @@ function validateAndBuild(body) {
       },
       warnings: strList(dx.warnings, 200, 12),
       /* 조치 안내는 항목명만 — 설명 문구는 코드에 있으므로 중복 저장하지 않는다 */
-      actions: strList((dx.actions || []).map((a) => (a && a.item) || ''), 60, 8).filter(Boolean),
+      actions: needs,
       quality: {
         unknownCount: num((dx.quality || {}).unknownCount) ?? 0,
         totalSlots: num((dx.quality || {}).totalSlots) ?? SLOT_IDS.length,
@@ -178,10 +223,26 @@ function validateAndBuild(body) {
     /* 서버가 두 경로 판정에서 파생한다. 클라이언트가 보낸 값은 받지 않는다. */
     level: levelOf(surface.status, backflow.status),
 
+    /* ── 공무원용 평탄화 요약 — 위 중첩 필드에서 뽑아 올린 것. 새 판단 없음 ── */
+    summary: buildSummary(dong && dong.name, surface, backflow, needs),
+    dong: (dong && dong.name) || null,      // location.dong 사본 — 콘솔 정렬·필터용
+    surfaceStatus: surface.status,
+    backflowStatus: backflow.status,
+    inflowCm: num(surface.inflowCm),        // ★ 정렬 키. 클수록 급하다. null 이면 미확정
+    defenseCm: num(surface.effectiveDefenseCm),
+    weakestPoint: str(surface.weakestPoint, 10),
+    depthCm: num(flood.depthCm),
+    needBarrierCm: num(surface.needBarrierCm),
+    needs,                                  // 필요 설비 배열 (array-contains 로 필터)
+    reliable: (dx.quality || {}).reliable === true,
+    unknownCount: num((dx.quality || {}).unknownCount) ?? 0,
+
     consent: { provide: true, priority: true },
     status: '미확인',                   // 공무원 워크플로우: 미확인 → 확인중 → 지원연계완료
     ticket: makeTicket(),
   };
+
+  return doc;
 }
 
 /** 검증 후 저장하고 접수번호를 돌려준다. */
@@ -225,10 +286,19 @@ function buildStats(body) {
     if (v) slots[id] = v;
   }
 
+  /* 익명 통계에도 같은 정렬 키를 넣는다. "어느 동에 물막이판이 몇 개 필요한가" 같은
+     집계가 여기서 바로 나온다. 개인 식별과 무관한 값들이다. */
+  const statsNeeds = strList((dx.actions || []).map((a) => (a && a.item) || ''), 60, 8)
+    .filter((x) => NEED_LABELS.includes(x));
+
   return {
     level: levelOf(surface.status, backflow.status),
     surface: surface.status,
     backflow: backflow.status,
+    inflowCm: num(surface.inflowCm),
+    defenseCm: num(surface.effectiveDefenseCm),
+    weakestPoint: str(surface.weakestPoint, 10),
+    needs: statsNeeds,
 
     grid: inBox ? gridOf(lat, lon) : null,
     /* 행정동은 수천 세대 단위라 개인 식별에 쓰이지 않는다. 격자보다 읽기 쉬워서
