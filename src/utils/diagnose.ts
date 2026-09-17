@@ -51,6 +51,8 @@ export interface SurfaceResult {
   weakestPoint: '현관' | '창문' | null;
   inflowCm: number | null;
   needBarrierCm: number | null;
+  /* 확인하지 못한 개구부 이름. 비어 있지 않으면 '방어가능' 을 말할 수 없다. */
+  unknownOpenings: string[];
 }
 
 export interface BackflowResult {
@@ -92,10 +94,10 @@ export const SLOT_IDS: (keyof Slots)[] = [
 ];
 
 export const ALLOWED: Record<keyof Slots, string[]> = {
-  entrance_sill:  ['없음', '카드보다낮음', '카드와비슷', '카드보다높음', 'unknown'],
+  entrance_sill:  ['없음', '카드1개', '카드2개', '카드3개이상', 'unknown'],
   stair_count:    ['0', '1-2', '3-4', '5이상', 'unknown'],
   water_panel:    ['설치', '미설치', 'unknown'],
-  window_base:    ['땅보다낮음', '비슷', '땅보다높음', 'unknown'],
+  window_base:    ['땅보다낮음', '비슷', '카드1개', '카드2개', '카드3개이상', 'unknown'],
   window_barrier: ['설치', '미설치', 'unknown'],
   backflow_valve: ['있음', '없음', 'unknown'],
   rainy_symptom:  ['있음', '없음', 'unknown'],
@@ -110,12 +112,21 @@ export const ALLOWED: Record<keyof Slots, string[]> = {
 // 등급 -> cm 환산
 //   신용카드 긴 변 = 85.6mm. 구간 하한을 택해 위험을 과소평가하지 않는다.
 // ─────────────────────────────────────────────────────────────
+/* 카드 "개수" 로 묻는다. 높다/낮다로 물었을 때 충훈동 실측 34가구가
+   아래 두 칸에 0가구, 위 한 칸에 20가구(62%)로 몰렸다.
+   실측 현관턱 8.5 / 17 / 25.5 / 32cm — 전부 카드(8.56cm)의 정수배로 관찰됐다.
+   뒤쪽 세 개는 구버전 값 — 이미 저장된 데이터를 읽기 위해 남긴다(ALLOWED 에는 없음). */
 const SILL_CM: Record<string, number> = {
-  '없음': 0, '카드보다낮음': 5, '카드와비슷': 9, '카드보다높음': 15,
+  '없음': 0, '카드1개': 8.5, '카드2개': 17, '카드3개이상': 25.5,
+  '카드보다낮음': 5, '카드와비슷': 9, '카드보다높음': 15,
 };
 
+/* 창문은 지면보다 낮게 박힌 사례가 실재하므로 '땅보다낮음' 을 유지하고,
+   지면 위쪽만 카드 개수로 나눈다. '땅보다높음' 은 구버전 값. */
 const WINDOW_BASE_CM: Record<string, number> = {
-  '땅보다낮음': 0, '비슷': 3, '땅보다높음': 20,
+  '땅보다낮음': 0, '비슷': 3,
+  '카드1개': 8.5, '카드2개': 17, '카드3개이상': 25.5,
+  '땅보다높음': 20,
 };
 
 const PANEL_CM = 30;    // 가정용 물막이판 일반 규격
@@ -164,48 +175,57 @@ function diagnoseSurface(
     if (s.window_barrier === '설치') windowDef += BARRIER_CM;
   }
 
-  const known = [entranceDef, windowDef].filter((d): d is number => d !== null);
+  const known: Record<string, number> = {};
+  if (entranceDef !== null) known['현관'] = entranceDef;
+  if (windowDef !== null) known['창문'] = windowDef;
+  const unknownOpenings = (['현관', '창문'] as const).filter((n) => !(n in known));
 
-  if (known.length === 0) {
-    return {
-      status: '확인필요',
-      reason: '현관 턱과 창문 위치를 모두 확인하지 못했습니다.',
-      effectiveDefenseCm: null, weakestPoint: null,
-      inflowCm: null, needBarrierCm: null,
-    };
+  const base = {
+    effectiveDefenseCm: null as number | null,
+    weakestPoint: null as '현관' | '창문' | null,
+    inflowCm: null as number | null,
+    needBarrierCm: null as number | null,
+    unknownOpenings: unknownOpenings as string[],
+  };
+
+  const names = Object.keys(known);
+  if (names.length === 0) {
+    return { ...base, status: '확인필요',
+      reason: '현관 턱과 창문 위치를 모두 확인하지 못했습니다.' };
   }
 
-  const effective = Math.min(...known);
-  const weakest: '현관' | '창문' =
-    windowDef !== null && effective === windowDef ? '창문' : '현관';
+  const weakest = names.reduce((a, b) => (known[a] <= known[b] ? a : b)) as '현관' | '창문';
+  const effective = known[weakest];
+  base.effectiveDefenseCm = effective;
+  base.weakestPoint = weakest;
 
   if (floodDepthCm === null || floodDepthCm === undefined) {
-    return {
-      status: '확인필요',
-      reason: '해당 주소의 예상침수심 정보를 조회하지 못했습니다.',
-      effectiveDefenseCm: effective, weakestPoint: weakest,
-      inflowCm: null, needBarrierCm: null,
-    };
+    return { ...base, status: '확인필요',
+      reason: '해당 주소의 예상침수심 정보를 조회하지 못했습니다.' };
   }
 
+  /* 아는 개구부만으로 이미 유입이 확정되면 모르는 쪽과 무관하게 결론이 같다. */
   if (floodDepthCm > effective) {
-    return {
-      status: '유입가능',
-      reason: `예상침수심 ${floodDepthCm}cm 가 ${weakest} 방어높이 ${effective}cm 를 초과합니다.`,
-      effectiveDefenseCm: effective,
-      weakestPoint: weakest,
+    let reason = `예상침수심 ${floodDepthCm}cm 가 ${weakest} 방어높이 ${effective}cm 를 초과합니다.`;
+    if (unknownOpenings.length) reason += ` (${unknownOpenings[0]} 상태는 확인하지 못했습니다.)`;
+    return { ...base, status: '유입가능', reason,
       inflowCm: round1(floodDepthCm - effective),
       // 행안부 고시 제23조: 예상 침수 높이 이상의 여유고 확보
-      needBarrierCm: round1(floodDepthCm),
-    };
+      needBarrierCm: round1(floodDepthCm) };
   }
 
-  return {
-    status: '방어가능',
+  /* 아는 개구부는 방어되지만, 모르는 개구부가 최약점일 수 있다.
+     "안전하다" 는 전부 알아야 말할 수 있으므로 여기서 방어가능을 선언하지 않는다. */
+  if (unknownOpenings.length) {
+    const u = unknownOpenings[0];
+    return { ...base, status: '확인필요',
+      reason: `${weakest} 방어높이 ${effective}cm 는 예상침수심 ${floodDepthCm}cm 이상이지만, `
+        + `${u} 상태를 확인하지 못해 방어 가능 여부를 결론지을 수 없습니다.` };
+  }
+
+  return { ...base, status: '방어가능',
     reason: `${weakest} 방어높이 ${effective}cm 가 예상침수심 ${floodDepthCm}cm 이상입니다.`,
-    effectiveDefenseCm: effective, weakestPoint: weakest,
-    inflowCm: 0, needBarrierCm: null,
-  };
+    inflowCm: 0 };
 }
 
 // ─────────────────────────────────────────────────────────────
