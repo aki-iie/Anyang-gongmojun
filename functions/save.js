@@ -159,30 +159,35 @@ function validateAndBuild(body) {
         // 개정되면 행마다 정의가 달라져 종단 분석이 오염된다. 필요하면 쓰는 시점에 계산한다.
         effectiveDefenseCm: num(surface.effectiveDefenseCm),
         weakestPoint: str(surface.weakestPoint, 10),
-        needBarrierCm: num(surface.needBarrierCm),
         // 비대칭 판정에서 '확인필요'가 나온 이유. 공무원이 무엇을 확인해야 하는지가 여기 있다.
         unknownOpenings: strList(surface.unknownOpenings, 10, 2),
+        /* needBarrierCm 은 저장하지 않는다 — 값이 flood.depthCm 과 같다.
+           엔진은 조치 문구 생성에 계속 쓰지만(diagnose.ts), 저장하면 중복 컬럼이다.
+           화면·문서에서는 "예상침수심 이상으로 설치"로 안내한다. */
       },
       backflow: {
         status: backflow.status,
         signals: strList(backflow.signals, 200, 10),
-        signalCount: num(backflow.signalCount) ?? 0,
         experienced: backflow.experienced === true,
+        /* signalCount 는 저장하지 않는다 — signals.length 다 (diagnose.py:240). */
       },
       warnings: strList(dx.warnings, 200, 12),
-      /* 조치 안내는 항목명만 — 설명 문구는 코드에 있으므로 중복 저장하지 않는다 */
-      actions: strList((dx.actions || []).map((a) => (a && a.item) || ''), 60, 8).filter(Boolean),
       quality: {
         unknownCount: num((dx.quality || {}).unknownCount) ?? 0,
-        totalSlots: num((dx.quality || {}).totalSlots) ?? SLOT_IDS.length,
         reliable: (dx.quality || {}).reliable === true,
+        /* totalSlots 는 저장하지 않는다 — 항상 SLOT_IDS.length(12) 인 상수다.
+           문항 수가 바뀌면 코드가 바뀌므로 옛 행의 값은 어차피 옛 기준이다. */
       },
+      /* actions 는 저장하지 않는다 — status·weakestPoint·slots 에서 규칙으로 재생성된다.
+         설명 문구도 코드에 있어 항목명만 남겨도 중복이었다. 화면은 엔진 출력을 그대로 쓴다. */
     },
 
     /* 서버가 두 경로 판정에서 파생한다. 클라이언트가 보낸 값은 받지 않는다. */
     level: levelOf(surface.status, backflow.status),
 
-    consent: { provide: true, priority: true },
+    /* consent 는 저장하지 않는다 — 위 검증(동의 2건 필수)을 통과하지 못하면 문서가
+       만들어지지 않으므로, 이 컬렉션에 존재한다는 것 자체가 동의를 뜻한다.
+       값이 항상 true 인 컬럼은 정보가 0이다. 선택 동의 항목이 생기면 그때 되살린다. */
     status: '미확인',                   // 공무원 워크플로우: 미확인 → 확인중 → 지원연계완료
     ticket: makeTicket(),
   };

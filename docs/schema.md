@@ -50,14 +50,12 @@ diagnoses/{docId}
   flood:    { covered, inMap, seg, predCm, traceCm, depthCm, basis },
   slots:    { entrance_sill: '없음', ... },       // 답한 12슬롯만
   diagnosis: {
-    surface:  { status, reason, effectiveDefenseCm, weakestPoint, needBarrierCm, unknownOpenings },
-    backflow: { status, signals, signalCount, experienced },
+    surface:  { status, reason, effectiveDefenseCm, weakestPoint, unknownOpenings },
+    backflow: { status, signals, experienced },
     warnings: string[],
-    actions:  string[],                           // 항목명만
-    quality:  { unknownCount, totalSlots, reliable }
+    quality:  { unknownCount, reliable }
   },
   level: '위험'|'주의'|'확인필요'|'안전',          // 서버 파생
-  consent: { provide: true, priority: true },
   status: '미확인'|'확인중'|'지원연계완료',
   ticket: 'AY-######',                            // 서버 발급, 사용자 화면에 표시
   createdAt
@@ -115,6 +113,28 @@ stats/{docId}
 
 - `POST /api/save` → `201 { saved, ticket }` / 조건 미달 `400 { error }` (문구가 그대로 모달에 뜬다)
 - `POST /api/stats` → `201 { recorded, level }`. 실패해도 화면을 막지 않는다.
+
+## 일부러 저장하지 않는 것
+
+파생값은 저장하지 않고 **쓰는 시점에 계산한다.** 원본을 남기면 파생은 언제든 복원되지만,
+파생을 남기면 환산 규칙이 개정될 때 행마다 정의가 달라져 되돌릴 수 없다. 라벨이 수년에
+걸쳐 붙는 데이터에서는 이 차이가 치명적이다.
+
+| 저장 안 함 | 복원 방법 | 뺀 이유 |
+|---|---|---|
+| `inflowCm` (침수심 − 방어높이) | `flood.depthCm − effectiveDefenseCm` | 실내 유입 깊이가 아니다. 반지하는 실내 바닥이 지면보다 낮아 침수가 지속되면 실내 수위가 외부 수위를 따라가므로 이 값은 **위험을 과소평가**한다. `SEG_DEPTH_CM` 이 가정값이라 1cm 단위 표기는 없는 정밀도를 주장한다 |
+| `needBarrierCm` | `flood.depthCm` 과 같은 값 | 턱 높이를 빼지도 여유를 더하지도 않아 침수심의 복사본이다. 엔진은 조치 문구 생성에 계속 쓴다 |
+| `backflow.signalCount` | `signals.length` | 배열 길이 (`diagnose.py:240`) |
+| `quality.totalSlots` | `SLOT_IDS.length` = 12 | 상수. 문항 수가 바뀌면 코드가 바뀌므로 옛 행의 값은 옛 기준이다 |
+| `actions` | `status` · `weakestPoint` · `slots` 로 재생성 | 항목명만 남겨도 규칙에서 나온다. 설명 문구는 원래 코드에 있었다 |
+| `consent` | 이 컬렉션에 존재한다는 사실 자체 | 동의 2건 검증(`save.js:97`)을 통과하지 못하면 문서가 만들어지지 않는다. 값이 항상 `true` 인 컬럼은 정보가 0이다 |
+
+**`slots` 12개는 유일한 원본이므로 절대 빼지 않는다.** 환산 규칙(`SEG_DEPTH_CM`, 카드 cm 매핑)이
+개정되면 파생값은 전부 이 원본에서 최신 규칙으로 일괄 재계산한다.
+
+되살려야 하는 경우도 있다 — 선택 동의 항목이 늘면 `consent`, 대시보드가 "신호 N개 이상"
+필터를 쓰면 `signalCount`(Firestore 는 배열 길이로 필터할 수 없다), 설비별 목록을
+`array-contains` 로 뽑으면 `actions`. 붙일 때 같이 판단한다.
 
 ## 알려진 한계
 
