@@ -1,45 +1,44 @@
+/* LLM 호출 세 가지
+     Vision   — 사진 세 장에서 판독 가능한 슬롯 값을 미리 읽는다 (확신할 때만)
+     Extract  — 자유 텍스트 답변을 슬롯 값 하나로 정리한다 (functions/src/prompt.ts 의 계약)
+     Chat     — 문진 중 되물음·결과 화면 후속 대화
+   LLM 은 값 추출과 설명만 한다. 위험 판정은 src/utils/diagnose.ts 가 전담한다. */
 
+import {
+  SLOT_SPEC, LLM_CONFIG,
+  buildSystemPrompt, buildAnswerPrompt, buildExtractionSchema, parseExtraction, extractionFailure,
+} from '../../functions/src/prompt';
+import type { SlotSpec, ExtractionResult } from '../../functions/src/prompt';
+import { ALLOWED } from '../utils/diagnose';
+import type { Slots } from '../utils/diagnose';
+import { SLOT_PHOTO, SLOTS } from '../content';
 
-import { QUESTIONS } from '../content';
-import type { QuestionKey } from '../content';
+export type SlotId = keyof Slots;
+
+/** 사진으로 읽은 슬롯 값 하나 */
+export type SlotReading = {
+  value: string;                  // ALLOWED[slot] 안의 값만 들어온다
+  confidence: 'high' | 'low';     // high 면 문진에서 "맞나요?" 한 줄 확인으로 줄인다
+  detail: string;                 // 사진에서 무엇을 보고 그렇게 판단했는지
+};
 
 export interface VLMAnalysisResult {
-  overview: string; // 전체적인 사진 분석 브리핑
-  factors: {
-    sill: {
-      score: number; // 0 ~ 30
-      label: string;
-      confidence: 'high' | 'medium' | 'low';
-      detail: string;
-      needAsk: boolean;
-      customQuestion?: string;
-      options?: [string, number][];
-    };
-    window: {
-      score: number; // 0 ~ 20
-      label: string;
-      confidence: 'high' | 'medium' | 'low';
-      detail: string;
-      needAsk: boolean;
-      customQuestion?: string;
-      options?: [string, number][];
-    };
-    history: {
-      score: number; // 0 ~ 15
-      label: string;
-      detail: string;
-      needAsk: boolean;
-      customQuestion?: string;
-      options?: [string, number][];
-    };
-  };
+  overview: string;                                   // 사진 전체 총평
+  slots: Partial<Record<SlotId, SlotReading>>;        // 사진 판독 대상 슬롯만
 }
+
+/* 사진 판독 대상 — 질문 옆에 띄울 사진이 지정된 슬롯 (content.ts SLOT_PHOTO) */
+const VISION_SLOTS: SlotSpec[] = SLOT_SPEC.filter((s) => SLOT_PHOTO[s.id as SlotId] !== null);
+
+/* Vision 응답은 10초 안팎이다. 이보다 늦으면 사진 판독 없이 전부 묻는다. */
+const VISION_TIMEOUT_MS = 25000;
+const CHAT_TIMEOUT_MS = 20000;
 
 /* ────────────────────────────────────────────────────────────
    LLM 호출 경로
    개발(npm run dev): 로컬 .env 키로 OpenAI/OpenRouter 직접 호출
    배포(Firebase Hosting): /api/llm → Cloud Functions 가 서버에서 키를 붙여 호출
-   둘 다 불가하면 null → 호출부가 시뮬레이션으로 폴백한다.
+   둘 다 불가하거나 제한 시간을 넘기면 null → 호출부가 폴백한다.
    ──────────────────────────────────────────────────────────── */
 
 const PROXY_ENDPOINT = '/api/llm';
@@ -47,7 +46,7 @@ const PROXY_ENDPOINT = '/api/llm';
 type LLMBody = {
   messages: unknown[];
   temperature?: number;
-  response_format?: { type: string };
+  response_format?: Record<string, unknown>;
 };
 
 /* OpenAI 호환 응답에서 우리가 실제로 읽는 부분만 */
@@ -56,111 +55,42 @@ type LLMResponse = {
   usage?: Record<string, unknown>;
 };
 
-async function callLLM(body: LLMBody, tag: string): Promise<LLMResponse | null> {
+async function callLLM(body: LLMBody, tag: string, timeoutMs: number): Promise<LLMResponse | null> {
   const key = getApiKey();
+  if (!key && import.meta.env.DEV) {
+    console.log(`[${tag}] 키 없음 — 시뮬레이션으로 진행`);
+    return null;
+  }
 
-  if (key) {
-    const res = await fetch(getEndpoint(key), {
-      method: 'POST',
-      headers: getHeaders(key),
-      body: JSON.stringify({ ...body, model: getModel(key) }),
-    });
+  /* 느린 응답을 끝까지 기다리면 화면이 멈춘다. 제한 시간이 지나면 끊고 폴백으로 넘긴다. */
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = key
+      ? await fetch(getEndpoint(key), {
+          method: 'POST',
+          headers: getHeaders(key),
+          body: JSON.stringify({ ...body, model: getModel(key) }),
+          signal: ctrl.signal,
+        })
+      : await fetch(PROXY_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
     if (!res.ok) {
-      console.error(`[${tag}] direct call failed:`, res.status, await res.text());
+      console.error(`[${tag}] call failed:`, res.status, await res.text());
       return null;
     }
-    return res.json();
+    return (await res.json()) as LLMResponse;
+  } catch (err) {
+    if (ctrl.signal.aborted) console.warn(`[${tag}] ${timeoutMs / 1000}초 초과 — 폴백으로 전환`);
+    else console.error(`[${tag}] exception:`, err);
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
-
-  if (!import.meta.env.DEV) {
-    const res = await fetch(PROXY_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      console.error(`[${tag}] proxy call failed:`, res.status, await res.text());
-      return null;
-    }
-    return res.json();
-  }
-
-  console.log(`[${tag}] 키 없음 — 시뮬레이션으로 진행`);
-  return null;
-}
-
-/* ────────────────────────────────────────────────────────────
-   AI 응답 정규화
-   AI가 options를 [] 로 주거나 형태를 바꿔 보내면 선택지가 0개로 렌더되어
-   문진이 멈춘다. 여기서 형태를 강제하고, 못 쓰면 content.ts 기본값으로 되돌린다.
-   ──────────────────────────────────────────────────────────── */
-
-const SCORE_CAP: Record<QuestionKey, number> = { sill: 30, window: 20, history: 15 };
-
-const defaultOptions = (key: QuestionKey): [string, number][] => {
-  const q = QUESTIONS.find((x) => x.key === key);
-  return q ? q.options : [];
-};
-
-const defaultQuestion = (key: QuestionKey): string =>
-  QUESTIONS.find((x) => x.key === key)?.text ?? '';
-
-/** AI가 준 보기를 [문구, 점수] 튜플 배열로 강제한다. 2개 미만이면 기본 보기로 폴백. */
-function normalizeOptions(raw: unknown, key: QuestionKey): [string, number][] {
-  if (!Array.isArray(raw)) return defaultOptions(key);
-  const cap = SCORE_CAP[key];
-  const out: [string, number][] = [];
-  for (const item of raw) {
-    let label: unknown;
-    let pts: unknown;
-    if (Array.isArray(item)) { label = item[0]; pts = item[1]; }
-    else if (item && typeof item === 'object') {
-      const o = item as Record<string, unknown>;
-      label = o.label ?? o.text ?? o.option;
-      pts = o.score ?? o.pts ?? o.point;
-    }
-    const l = typeof label === 'string' ? label.trim() : '';
-    const n = Number(pts);
-    if (!l) continue;
-    out.push([l, Number.isFinite(n) ? Math.max(0, Math.min(cap, Math.round(n))) : 0]);
-  }
-  return out.length >= 2 ? out : defaultOptions(key);
-}
-
-function normalizeText(raw: unknown, fallback = ''): string {
-  return typeof raw === 'string' && raw.trim() ? raw.trim() : fallback;
-}
-
-function normalizeFactor(raw: unknown, key: QuestionKey) {
-  const f = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const n = Number(f.score);
-  const conf = f.confidence;
-  return {
-    score: Number.isFinite(n) ? Math.max(0, Math.min(SCORE_CAP[key], Math.round(n))) : 0,
-    label: normalizeText(f.label, '판단 보류'),
-    confidence: (conf === 'high' || conf === 'medium' || conf === 'low' ? conf : 'low') as 'high' | 'medium' | 'low',
-    detail: normalizeText(f.detail, '사진만으로는 판단이 어려워 사용자 확인이 필요합니다.'),
-    needAsk: f.needAsk !== false,
-    customQuestion: normalizeText(f.customQuestion, defaultQuestion(key)),
-    options: normalizeOptions(f.options, key),
-  };
-}
-
-/** AI 원본 JSON을 UI가 절대 깨지지 않는 형태로 변환한다. */
-export function normalizeVLM(raw: unknown, address: string): VLMAnalysisResult {
-  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const f = (r.factors && typeof r.factors === 'object' ? r.factors : {}) as Record<string, unknown>;
-  return {
-    overview: normalizeText(
-      r.overview,
-      `${address ? `[${address}] ` : ''}사진을 분석했습니다. 몇 가지만 더 확인하면 정확한 점수를 낼 수 있어요.`
-    ),
-    factors: {
-      sill: normalizeFactor(f.sill, 'sill'),
-      window: normalizeFactor(f.window, 'window'),
-      history: normalizeFactor(f.history, 'history'),
-    },
-  };
 }
 
 const getApiKey = (): string | null => {
@@ -196,91 +126,91 @@ const getHeaders = (key: string) => {
   return headers;
 };
 
+/* ────────────────────────────────────────────────────────────
+   Vision — 사진 판독
+   ──────────────────────────────────────────────────────────── */
+
+function normalizeText(raw: unknown, fallback = ''): string {
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : fallback;
+}
+
+/** AI 원본 JSON 을 판정 엔진이 받아들이는 값으로만 좁힌다.
+    허용 값 밖이거나 unknown 이면 확신을 낮춰 문진에서 정식으로 묻게 한다. */
+export function normalizeVLM(raw: unknown, address: string): VLMAnalysisResult {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const src = (r.slots && typeof r.slots === 'object' ? r.slots : {}) as Record<string, unknown>;
+  const slots: VLMAnalysisResult['slots'] = {};
+  for (const spec of VISION_SLOTS) {
+    const id = spec.id as SlotId;
+    const f = (src[id] && typeof src[id] === 'object' ? src[id] : {}) as Record<string, unknown>;
+    const v = typeof f.value === 'string' && ALLOWED[id].includes(f.value) ? f.value : 'unknown';
+    slots[id] = {
+      value: v,
+      confidence: f.confidence === 'high' && v !== 'unknown' ? 'high' : 'low',
+      detail: normalizeText(f.detail, '사진만으로는 판단하기 어려워요.'),
+    };
+  }
+  return {
+    overview: normalizeText(
+      r.overview,
+      `${address ? `[${address}] ` : ''}사진을 살펴봤어요. 몇 가지만 직접 확인할게요.`
+    ),
+    slots,
+  };
+}
+
 /**
- * 3장의 사진(문턱, 창문, 골목)과 주소를 gpt-4o-mini Vision으로 종합 분석
+ * 사진 세 장(현관, 창문, 골목)에서 판독 가능한 슬롯 값을 미리 읽는다.
+ * 확신할 수 없는 항목은 unknown/low 로 두고 문진에서 묻는다.
  */
 export async function analyzeHousePhotos(
   photos: (string | null)[],
   address: string
 ): Promise<VLMAnalysisResult> {
+  /* 사진이 한 장도 없으면 볼 것이 없다 — 호출하지 않고 전부 묻는다 */
+  if (!photos.some(Boolean)) return simulateAnalysis(address);
+
+  const guide = VISION_SLOTS.map((s) => {
+    const photo = SLOT_PHOTO[s.id as SlotId] as number;
+    const opts = s.options.map((o) => `"${o.value}"(${o.label})`).join(', ');
+    return `- ${s.id} — 사진 ${photo + 1}(${SLOTS[photo]})을 보세요.\n  질문: ${s.question}\n  고를 수 있는 값: ${opts}`;
+  }).join('\n');
+
   type ContentPart =
     | { type: 'text'; text: string }
     | { type: 'image_url'; image_url: { url: string } };
   const contentParts: ContentPart[] = [
     {
       type: 'text',
-      text: `당신은 안양시 반지하 침수 취약성 진단 AI 전문가입니다.
-사용자가 제출한 주소: "${address || '주소 미입력'}"
-사용자가 제출한 3장의 사진(1: 현관 문턱, 2: 창문, 3: 집 앞 골목)을 정밀하게 분석해주세요.
+      text: `당신은 안양시 반지하 침수 대비 진단 서비스의 사진 판독 도우미입니다.
+사용자 주소: "${address || '주소 미입력'}"
+사진 1: 현관 문턱, 사진 2: 창문, 사진 3: 집 앞 골목.
 
-평가 기준:
-1. 현관 문턱(sill):
-   - 신용카드 세로(8.5cm)보다 낮음: 30점 (매우 취약)
-   - 카드 1장 정도: 20점
-   - 카드 2장(17cm) 정도: 10점
-   - 그 이상으로 높음: 0점 (안전)
-   - 사진으로 확신할 수 없으면 needAsk: true 및 사용자에게 재확인할 customQuestion과 보기 options를 생성하세요.
+아래 항목마다 사진에서 값을 하나 고르세요.
+${guide}
 
-2. 창문(window):
-   - 창문 하단이 바깥 땅바닥에 거의 붙어있음: 20점 (매우 취약)
-   - 바닥에서 카드 2장(17cm) 정도: 12점
-   - 무릎 높이(40cm 내외): 5점
-   - 그보다 높음: 0점 (안전)
-   - 확신 불가 시 needAsk: true 및 customQuestion, options 생성.
+[반드시 지킬 규칙]
+1. 위에 적힌 값 중 하나만 고릅니다. 새 값을 만들지 않습니다.
+2. 사진에서 분명히 보일 때만 confidence 를 "high" 로 둡니다.
+   가려졌거나, 각도가 애매하거나, 해당 사진이 없으면 value 는 "unknown", confidence 는 "low" 입니다.
+3. 위험도를 판정하지 않습니다. 점수나 등급을 말하지 않습니다.
+4. detail 은 사진에서 무엇을 봤는지 한 문장으로 씁니다.
+5. overview 는 사진 전체에 대한 2문장 이내의 차분한 설명입니다. 불안을 조성하지 않습니다.
 
-3. 집 앞 골목(history/drainage):
-   - 골목의 경사도, 빗물받이(배수구) 상태, 저지대 여부를 관찰하세요.
-   - 2022년 집중호우 침수 이력이나 배수 역류 위험을 추정하여 점수(0~15점) 부여.
-   - 골목 침수 경험 여부를 사용자에게 묻는 것이 권장되므로 needAsk: true 설정.
-
-반드시 아래 JSON 포맷으로만 응답하세요 (JSON 외 마크다운 태그나 다른 말 금지):
+JSON 으로만 응답합니다:
 {
-  "overview": "사진을 분석한 전반적인 구조적 위험성 브리핑 (친절하고 전문적인 2~3문장)",
-  "factors": {
-    "sill": {
-      "score": number,
-      "label": "판단 요약 라벨 (예: 카드보다 낮아 침수 취약)",
-      "confidence": "high" | "medium" | "low",
-      "detail": "VLM 분석 상세 근거",
-      "needAsk": boolean,
-      "customQuestion": "신뢰도가 낮거나 확인 필요시 되물을 질문",
-      "options": [["보기1", 점수], ["보기2", 점수], ...]
-    },
-    "window": {
-      "score": number,
-      "label": "판단 요약 라벨",
-      "confidence": "high" | "medium" | "low",
-      "detail": "VLM 분석 상세 근거",
-      "needAsk": boolean,
-      "customQuestion": "되물을 질문",
-      "options": [["보기1", 점수], ["보기2", 점수], ...]
-    },
-    "history": {
-      "score": number,
-      "label": "골목 및 배수구 관찰 요약",
-      "detail": "골목 경사 및 배수구 상태 근거",
-      "needAsk": true,
-      "customQuestion": "2022년 8월 집중호우 때 이 골목에 물이 찼던 기억이 있으신가요?",
-      "options": [["네, 물이 찼어요", 15], ["아니요, 괜찮았어요", 0], ["잘 모르겠어요", 5]]
-    }
+  "overview": "…",
+  "slots": {
+    "<항목 id>": { "value": "…", "confidence": "high" | "low", "detail": "…" }
   }
-}`
-    }
+}`,
+    },
   ];
 
-  // 사진 첨부 (0: 문턱, 1: 창문, 2: 골목)
-  const slotNames = ['현관 문턱 사진', '창문 사진', '집 앞 골목 사진'];
   photos.forEach((photo, idx) => {
-    if (photo) {
-      contentParts.push({
-        type: 'text',
-        text: `[사진 ${idx + 1}: ${slotNames[idx]}]`
-      });
-      contentParts.push({
-        type: 'image_url',
-        image_url: { url: photo }
-      });
-    }
+    if (!photo) return;
+    contentParts.push({ type: 'text', text: `[사진 ${idx + 1}: ${SLOTS[idx]}]` });
+    contentParts.push({ type: 'image_url', image_url: { url: photo } });
   });
 
   try {
@@ -288,124 +218,36 @@ export async function analyzeHousePhotos(
       messages: [{ role: 'user', content: contentParts }],
       response_format: { type: 'json_object' },
       temperature: 0.2,
-    }, 'Vision');
+    }, 'Vision', VISION_TIMEOUT_MS);
 
-    if (!data) return simulateAnalysis(photos, address);
-    console.log('[Vision Success]:', data);
-    const rawContent = data.choices?.[0]?.message?.content;
-    /* 응답에 본문이 없으면 파싱하지 않고 시뮬레이션으로 넘긴다 */
-    if (!rawContent) return simulateAnalysis(photos, address);
+    const rawContent = data?.choices?.[0]?.message?.content;
+    /* 응답이 없거나 늦으면 사진 판독 없이 전부 묻는다 */
+    if (!rawContent) return simulateAnalysis(address);
     const parsed = normalizeVLM(JSON.parse(rawContent), address);
     console.log('[VLM Normalized]:', parsed);
     return parsed;
   } catch (err) {
-    console.error('[OpenAI/OpenRouter] Failed to analyze:', err);
-    return simulateAnalysis(photos, address);
+    console.error('[Vision] 분석 실패:', err);
+    return simulateAnalysis(address);
   }
 }
 
-/**
- * 챗봇과의 추가 대화 처리 (사용자 자유 텍스트 실시간 대화)
- */
-export async function sendChatMessage(
-  history: { role: 'bot' | 'user'; text: string }[],
-  userText: string,
-  context?: { address?: string; scores?: Record<string, number>; pendingQuestion?: string; resultSummary?: string }
-): Promise<string> {
-  const pendingNote = context?.pendingQuestion
-    ? `\n\n[진행 상황] 지금 사용자는 3단계 문진 중이고, 현재 답을 기다리는 질문은 다음과 같습니다:\n"${context.pendingQuestion}"\n사용자가 다른 것을 물으면 먼저 1~2문장으로 짧게 답한 뒤, 위 질문에 답해 달라고 자연스럽게 이어가세요. "사진을 보내주세요" 같은 안내는 절대 하지 마세요. 사진은 이미 받았습니다.`
-    : '';
-
-  const resultNote = context?.resultSummary
-    ? `\n\n[이 사용자의 진단 결과]\n${context.resultSummary}\n\n점수를 설명할 때는 위 "점수 구성"의 항목명과 숫자를 그대로 인용하고, 없는 항목을 지어내지 마세요.`
-    : '';
-
-  const systemMessage = {
-    role: 'system',
-    content: `당신은 안양시 반지하 침수 취약성 진단 전문 AI 챗봇 '잠길까 도우미'입니다.
-거주민의 주소: "${context?.address || '미입력'}"${resultNote}
-사용자의 질문에 친절하고 전문적인 한국어로 답변해주세요.
-차수판, 창문 차수막, 물막이판 설치 지원, 대피 요령, 침수 위험 요인 등에 대해 유용한 조언을 제공하세요. 2~3문장으로 간결하고 명확하게 답하세요.${pendingNote}`
-  };
-
-  const formattedHistory = history.map((h) => ({
-    role: h.role === 'bot' ? ('assistant' as const) : ('user' as const),
-    content: h.text,
-  }));
-
-  try {
-    const data = await callLLM({
-      messages: [systemMessage, ...formattedHistory, { role: 'user', content: userText }],
-      temperature: 0.7,
-    }, 'Chat');
-
-    if (!data) return '지금은 AI 답변을 불러올 수 없어요. 잠시 후 다시 시도해 주세요.';
-    return data.choices?.[0]?.message?.content ?? '확인했습니다.';
-  } catch (err) {
-    console.error('[OpenAI/OpenRouter Chat Exception]:', err);
-    return '네, 질문해주신 내용을 바탕으로 안내를 도와드리겠습니다.';
+/** 판독 없이 진행 — 가짜로 확신하지 않는다. 전부 low 라서 모든 항목을 정식으로 묻는다. */
+function simulateAnalysis(address: string): VLMAnalysisResult {
+  const slots: VLMAnalysisResult['slots'] = {};
+  for (const s of VISION_SLOTS) {
+    slots[s.id as SlotId] = { value: 'unknown', confidence: 'low', detail: '사진 판독을 하지 못했어요.' };
   }
-}
-
-function simulateAnalysis(_photos: (string | null)[], address: string): VLMAnalysisResult {
   return {
-    overview: `${address ? `[${address}] ` : ''}제출해주신 사진을 AI로 분석했습니다. 현관 문턱이 낮고 창문이 도로면과 가까워 집중호우 시 빗물 유입 위험이 있는 구조입니다.`,
-    factors: {
-      sill: {
-        score: 20,
-        label: '카드 높이(약 8.5cm) 내외로 추정',
-        confidence: 'medium',
-        detail: '현관 단차가 낮아 도로변 빗물이 월류할 위험이 관찰됩니다.',
-        needAsk: true,
-        customQuestion: '현관 앞에 턱이 낮아 보여요. 신용카드를 세운 높이(약 8.5cm)와 비교하면 실제로는 어느 정도인가요?',
-        options: [
-          ['카드보다 낮아요', 30],
-          ['카드 1장 정도예요', 20],
-          ['카드 2장 정도예요 (약 17cm)', 10],
-          ['그보다 훨씬 높아요', 0],
-        ],
-      },
-      window: {
-        score: 12,
-        label: '바닥에서 약 15~20cm 높이',
-        confidence: 'medium',
-        detail: '창문 하단이 노면과 가까워 튀는 빗물 및 침수심 상승 시 취약합니다.',
-        needAsk: true,
-        customQuestion: '창문 아래쪽이 바깥 땅바닥에서 실제로 얼마나 떨어져 있나요?',
-        options: [
-          ['거의 땅에 붙어 있어요', 20],
-          ['카드 2장 정도예요 (약 17cm)', 12],
-          ['무릎 높이쯤이에요', 5],
-          ['그보다 높아요', 0],
-        ],
-      },
-      history: {
-        score: 5,
-        label: '골목 경사 및 배수 상태',
-        detail: '골목 경사면에 위치하여 상류부 유출수가 모이기 쉬운 지형입니다.',
-        needAsk: true,
-        customQuestion: '2022년 8월 집중호우 때, 이 골목에 물이 찼던 기억이 있나요?',
-        options: [
-          ['네, 물이 찼어요', 15],
-          ['아니요, 괜찮았어요', 0],
-          ['잘 모르겠어요', 5],
-        ],
-      },
-    },
+    overview: `${address ? `[${address}] ` : ''}사진을 받았어요. 항목마다 직접 여쭤볼게요.`,
+    slots,
   };
 }
-
 
 /* ────────────────────────────────────────────────────────────
-   자유 텍스트 답변 매핑
-   사용자가 버튼 대신 "비슷해" 처럼 직접 입력했을 때,
-   그 발화를 보기 중 하나로 연결해 문진을 계속 진행시킨다.
+   자유 텍스트 → 슬롯 값
+   1차 로컬 매칭(비용 0) → 2차 LLM 추출(8초 제한). 어느 쪽이든 실패하면 버튼 폴백.
    ──────────────────────────────────────────────────────────── */
-
-export type MatchResult = {
-  index: number;          // 매칭된 보기 인덱스, 실패 시 -1
-  intent: 'answer' | 'question' | 'unclear';
-};
 
 const normalizeKo = (t: string) => t.replace(/\s+/g, '').toLowerCase();
 
@@ -432,60 +274,75 @@ export function matchAnswerLocally(userText: string, options: string[]): number 
   return hits.length === 1 ? hits[0] : -1;
 }
 
-export async function matchAnswerToOption(
-  userText: string,
-  question: string,
-  options: string[]
-): Promise<MatchResult> {
-  // 1) 로컬 매칭 우선 — 빠르고 공짜다
-  const local = matchAnswerLocally(userText, options);
+/**
+ * 사용자의 자유 텍스트를 슬롯 값 하나로 정리한다.
+ * 결과의 needsFallback 이 true 면 호출부는 선택지 버튼을 계속 보여준다.
+ */
+export async function extractSlot(slot: SlotSpec, userText: string): Promise<ExtractionResult> {
+  const local = matchAnswerLocally(userText, slot.options.map((o) => o.label));
   if (local >= 0) {
-    console.log('[Match] local hit:', local, options[local]);
-    return { index: local, intent: 'answer' };
+    /* 보기 문구를 거의 그대로 말했으면 그 선택을 존중한다 ("잘 모르겠어요" 포함) */
+    return { intent: 'answer', value: slot.options[local].value, confidence: 'high', reply: '', needsFallback: false };
   }
 
-  const list = options.map((o, i) => `${i}: ${o}`).join('\n');
-  const prompt = `아래는 침수 위험 문진의 질문과 보기입니다.
+  const data = await callLLM({
+    messages: [
+      { role: 'system', content: buildSystemPrompt(slot) },
+      { role: 'user', content: userText },
+    ],
+    temperature: LLM_CONFIG.temperature,
+    response_format: { type: 'json_schema', json_schema: buildExtractionSchema(slot) },
+  }, 'Extract', LLM_CONFIG.timeoutMs);
 
-[질문] ${question}
+  if (!data) return extractionFailure();
+  return parseExtraction(data.choices?.[0]?.message?.content ?? '', slot);
+}
 
-[보기]
-${list}
+/** 문진 도중 되물음("물막이판이 뭐예요?")에 짧게 답한다. 끝에 원래 질문을 다시 안내한다. */
+export async function answerSlotQuestion(slot: SlotSpec, userText: string): Promise<string> {
+  const data = await callLLM({
+    messages: [
+      { role: 'system', content: buildAnswerPrompt(slot) },
+      { role: 'user', content: userText },
+    ],
+    temperature: 0.4,
+  }, 'Explain', LLM_CONFIG.timeoutMs);
+  const text = data?.choices?.[0]?.message?.content?.trim();
+  /* 답을 못 받으면 명세의 보충 설명으로 대신한다 */
+  return text || `${slot.hint ? slot.hint + ' ' : ''}${slot.question}`;
+}
 
-[사용자 발화] "${userText}"
+/* ────────────────────────────────────────────────────────────
+   결과 화면 후속 대화
+   ──────────────────────────────────────────────────────────── */
 
-사용자의 발화를 위 보기 중 하나로 연결하세요.
+export async function sendChatMessage(
+  history: { role: 'bot' | 'user'; text: string }[],
+  userText: string,
+  context?: { address?: string; resultSummary?: string }
+): Promise<string> {
+  const resultNote = context?.resultSummary
+    ? `\n\n[이 사용자의 진단 결과]\n${context.resultSummary}\n\n결과를 설명할 때는 위 내용의 항목명과 숫자(cm)를 그대로 인용하고, 없는 항목을 지어내지 마세요. 이 서비스는 점수를 매기지 않으니 "점수"라는 표현을 쓰지 마세요.`
+    : '';
 
-판단 지침:
-1. 표현이 달라도 **의미가 통하면 그 보기를 고르고** intent="answer", index=보기 번호를 반환합니다.
-   - 보기 "카드 1장 정도예요" ← "카드랑 비슷해", "카드랑 비슷한듯", "그 정도야", "얼추 맞아", "비슷해"
-   - 보기 "카드보다 낮아요" ← "더 낮아", "거의 없어", "턱이 없다시피 해"
-   - 보기 "그보다 훨씬 높아요" ← "많이 높아", "무릎까지 와"
-   - 보기 "네, 물이 찼어요" ← "응 잠겼었어", "작년에 넘쳤어"
-   - 보기 "잘 모르겠어요" ← "글쎄", "기억 안 나", "몰라"
-2. 답변이 아니라 되묻는 질문이면 intent="question", index=-1.
-   - "차수판이 뭐예요?", "이거 왜 물어봐요?"
-3. intent="unclear"는 위 어디에도 해당하지 않을 때만 쓰는 최후 수단입니다.
-   **조금이라도 가까운 보기가 있으면 unclear 대신 answer로 고르세요.**
+  const systemMessage = {
+    role: 'system',
+    content: `당신은 안양시 반지하 침수 대비 진단 서비스 '잠길까 도우미'입니다.
+거주민의 주소: "${context?.address || '미입력'}"${resultNote}
+사용자의 질문에 친절하고 쉬운 한국어로 답하세요.
+물막이판, 창문 차수막, 역류방지밸브, 안양시 설치 지원, 대피 요령에 대해 도움이 되는 조언을 하세요. 2~3문장으로 간결하게 답하세요.`,
+  };
 
-JSON만 출력: {"intent":"answer|question|unclear","index":number}`;
+  const formattedHistory = history.map((h) => ({
+    role: h.role === 'bot' ? ('assistant' as const) : ('user' as const),
+    content: h.text,
+  }));
 
-  try {
-    const data = await callLLM({
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
-      temperature: 0,
-    }, 'Match');
-    if (!data) return { index: -1, intent: 'unclear' };
-    const parsed = JSON.parse(data.choices?.[0]?.message?.content ?? '{}');
-    const idx = Number(parsed.index);
-    const intent: MatchResult['intent'] =
-      parsed.intent === 'answer' || parsed.intent === 'question' ? parsed.intent : 'unclear';
-    const valid = Number.isFinite(idx) && idx >= 0 && idx < options.length;
-    console.log('[Match] AI result:', parsed);
-    return { index: valid && intent === 'answer' ? idx : -1, intent };
-  } catch (err) {
-    console.error('[Match Exception]:', err);
-    return { index: -1, intent: 'unclear' };
-  }
+  const data = await callLLM({
+    messages: [systemMessage, ...formattedHistory, { role: 'user', content: userText }],
+    temperature: 0.7,
+  }, 'Chat', CHAT_TIMEOUT_MS);
+
+  if (!data) return '지금은 답변을 불러올 수 없어요. 잠시 후 다시 시도해 주세요.';
+  return data.choices?.[0]?.message?.content ?? '확인했습니다.';
 }

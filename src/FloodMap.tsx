@@ -19,6 +19,22 @@ const TRACE_COLOR = '#b4452f';
 const TILE_URL: string | undefined = import.meta.env.VITE_TILE_URL;
 const TILE_ATTR: string = import.meta.env.VITE_TILE_ATTR ?? '';
 
+/* 행정동 경계 — public/dong.json (안양시 31개, 21KB).
+   tools/build_dong.py 가 만든다. 좌표는 [lon,lat,...] 순서인데
+   침수 폴리곤(shapes/traces)은 [lat,lon,...] 순서다 — 아래에서 뒤집어 쓴다. */
+const DONG_COLOR = '#8a857c';
+type DongFeature = { name: string; gu: string; polys: [number, number, number, number, number[]][] };
+
+let dongCache: Promise<DongFeature[]> | null = null;
+const loadDong = (): Promise<DongFeature[]> => {
+  if (!dongCache) {
+    dongCache = fetch('/dong.json')
+      .then((r) => (r.ok ? r.json() : []))
+      .catch(() => []);   // 경계가 없어도 지도는 그대로 동작해야 한다
+  }
+  return dongCache;
+};
+
 const isDark = () =>
   typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches;
 
@@ -36,18 +52,20 @@ type Props = {
   traces?: number[][];
   zoom?: number;
   height?: number;
+  /* 행정동 경계선. 기본으로 그린다 — 어느 동인지 보이면 결과를 읽기 쉽다. */
+  dongBoundary?: boolean;
   /* 위치 확인 단계에서는 false — 깨끗한 지도만 보여준다.
      결과 단계에서만 침수 레이어를 얹는다. */
   overlay?: boolean;
-  /* 핀 위에 새길 등급·배점 배지.
-     basis 는 점수의 근거 — 예측 구역이 아닌데 실제 침수 기록으로 점수가 난 경우
-     "침수 구역 아님 +25점" 같은 모순된 문구가 나오지 않게 한다. */
-  badge?: { seg: string | null; pts: number; basis?: 'both' | 'map' | 'trace' | 'none' } | null;
+  /* 핀 위에 새길 판정 침수심 배지.
+     basis 는 침수심의 출처 — 예측 구역이 아닌데 실제 기록으로 잡힌 곳(충훈부)을
+     "침수 구역 아님" 으로 잘못 적지 않게 한다. */
+  badge?: { seg: string | null; depthCm: number | null; basis?: 'both' | 'map' | 'trace' | 'none' } | null;
 };
 
 export default function FloodMap({
   lat, lon, accuracy = 0, shapes, traces, zoom = 16, height = 210,
-  overlay = false, badge = null,
+  overlay = false, badge = null, dongBoundary = true,
 }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -74,6 +92,27 @@ export default function FloodMap({
       mq.addEventListener('change', onTheme);
       map.once('unload', () => mq.removeEventListener('change', onTheme));
     }
+    /* 행정동 경계를 먼저 붙인다 — 나중에 붙는 침수 폴리곤이 위에 오도록.
+       침수 레이어(layerRef)는 매 갱신마다 비워지지만 이 그룹은 그대로 둔다. */
+    const dongGroup = L.layerGroup().addTo(map);
+    if (dongBoundary) {
+      loadDong().then((list) => {
+        if (mapRef.current !== map) return;        // 언마운트된 뒤 도착한 응답은 버린다
+        for (const d of list) {
+          for (const poly of d.polys) {
+            const flat = poly[4];
+            const pts: [number, number][] = [];
+            /* dong.json 은 [lon,lat] 순서다. Leaflet 은 [lat,lon] 을 받는다. */
+            for (let k = 0; k < flat.length; k += 2) pts.push([flat[k + 1], flat[k]]);
+            L.polygon(pts, {
+              color: DONG_COLOR, weight: 1, opacity: 0.55, dashArray: '3 3',
+              fill: false, interactive: false,
+            }).addTo(dongGroup);
+          }
+        }
+      });
+    }
+
     layerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     /* 카드가 펼쳐지는 애니메이션이 끝난 뒤 크기를 다시 잡아야 타일·중심이 어긋나지 않는다 */
@@ -140,18 +179,19 @@ export default function FloodMap({
       radius: 7, color: '#fff', weight: 3, fillColor: '#b4452f', fillOpacity: 1,
     }).addTo(group);
 
-    /* 점수 배지 — 지도를 다 읽은 뒤 결론이 도착하는 순서로 늦게 띄운다 */
+    /* 판정 침수심 배지 — 지도를 다 읽은 뒤 결론이 도착하는 순서로 늦게 띄운다.
+       divIcon 의 부모 폭이 0 이라 width:max-content 가 없으면 배경이 글자 폭만큼 늘지 않는다. */
     if (badge) {
       const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
       const basis = badge.basis ?? (badge.seg ? 'map' : 'none');
-      const head =
-        basis === 'both' ? `${badge.seg} · 침수 기록 있음`
-        : basis === 'trace' ? '실제 침수 기록 있음'
-        : basis === 'map' ? `${badge.seg}`
-        : '침수 구역 아님';
-      const label = `${head} · <b style="color:#b4452f">+${badge.pts}점</b>`;
+      const cm = `<b style="color:#b4452f">${badge.depthCm ?? 0}cm</b>`;
+      const label =
+        basis === 'both' ? `예상 + 실제 기록 · ${cm}`
+        : basis === 'trace' ? `실제 침수 기록 · ${cm}`
+        : basis === 'map' ? `${badge.seg} 예상 · ${cm}`
+        : '침수 예상 구역 아님';
       const html =
-        `<div style="transform:translate(-50%,-100%) translateY(-10px);white-space:nowrap;` +
+        `<div style="transform:translate(-50%,-100%) translateY(-10px);white-space:nowrap;width:max-content;` +
         `background:var(--color-bg);border:1.5px solid #b4452f;border-radius:9px;padding:5px 10px;` +
         `font-size:13px;font-weight:600;font-family:inherit;color:var(--color-text);` +
         `box-shadow:0 4px 12px rgba(0,0,0,.22)">${label}</div>`;
@@ -166,9 +206,9 @@ export default function FloodMap({
 
     map.setView([lat, lon], zoom);
     map.invalidateSize();
-    /* badge 객체는 매 렌더 새로 만들어지므로 값(seg·pts)만 의존성으로 둔다. */
+    /* badge 객체는 매 렌더 새로 만들어지므로 값(seg·depthCm·basis)만 의존성으로 둔다. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lat, lon, accuracy, shapes, traces, zoom, overlay, badge?.seg, badge?.pts, badge?.basis]);
+  }, [lat, lon, accuracy, shapes, traces, zoom, overlay, badge?.seg, badge?.depthCm, badge?.basis]);
 
   return (
     <div style={{ position: 'relative', height }}>

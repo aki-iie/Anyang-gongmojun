@@ -1,0 +1,31 @@
+rules_version = '2';
+
+/* 잠길까 — Firestore 보안 규칙
+   원칙: 기본 전부 차단.
+   - 쓰기: 클라이언트(브라우저)는 절대 못 쓴다. functions/save.js 가 firebase-admin 으로만 기록한다
+           (Admin SDK 는 이 규칙을 우회하므로, 여기서는 클라이언트를 막는 것이 전부다).
+   - 읽기: 관리자 custom claim(admin == true)이 붙은 계정만. 일반 방문자는 남의 집 진단을 볼 수 없다.
+   스키마는 docs/schema.md 참고. */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /diagnoses/{docId} {
+      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow write: if false;
+    }
+
+    /* 익명 통계 — 진단을 끝낸 모든 건. 주소도 정확한 좌표도 없다(100m 격자만).
+       쓰기는 서버만, 읽기는 관리자만. 집계 결과를 공개할 일이 생기면 그때는
+       읽기를 여는 게 아니라 집계본을 따로 만들어 내보내는 쪽이 맞다. */
+    match /stats/{docId} {
+      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow write: if false;
+    }
+
+    /* 새 컬렉션을 추가하면 위에 명시적으로 규칙을 적는다. 여기 걸리면 전부 거부. */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

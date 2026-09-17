@@ -1,37 +1,45 @@
-/* 침수 조회 — 서버(/api/flood)가 두 채널로 판정한다.
-     채널 A 도시침수지도(예측)  30년·50년 빈도 폴리곤
-     채널 B 침수흔적도(실적)    실제로 잠겼던 기록
+/* 침수심 조회 — 서버(/api/flood)가 두 채널에서 침수심(cm)을 뽑아 준다.
+     채널 A 도시침수지도(예측)  50년 빈도 등급 → 대표 침수심
+     채널 B 침수흔적도(실측)    실제로 잠겼던 깊이
+   판정은 여기서 하지 않는다. depthCm 을 src/utils/diagnose.ts 의 diagnose() 에 넣는다.
    지도 데이터(1.2MB)는 서버에만 있고 브라우저로 내려오지 않는다. */
 
 /** 채널 B — 실제 침수 기록 */
 export type TraceResult = {
-  hit: boolean;              // 이 좌표에 침수 기록이 있는가
-  pts: number;               // 흔적 배점 0~30
+  hit: boolean;              // 이 좌표가 흔적 폴리곤 안인가
+  depthCm: number | null;    // 기록된 침수심 cm
   label: string;
-  depth: number | null;      // 기록된 침수심 m
   year: string | null;       // 침수 연도
   cause: string | null;      // 피해 내용 (예: 내수침수)
   disaster: string | null;   // 재해명 (예: 8.8.~17. 호우)
   count: number;             // 겹친 기록 수
+  /* 폴리곤 밖이지만 100m 안에 기록이 있을 때 — 경고로만 쓰고 판정에는 넣지 않는다 */
+  near: { distM: number; depthCm: number; year: string | null } | null;
 };
 
+type FreqResult = { inMap: boolean; seg: string | null; depthCm: number; label: string };
+
 export type FloodResult = {
-  covered: boolean;      // 안양시 만안·동안구 범위 안인가
-  inMap: boolean;        // 침수 예상 구역에 포함되는가
-  seg: string | null;    // N330~N334 (클수록 깊음)
-  pts: number;           // 두 채널을 합친 최종 배점 0~30
-  /* 무엇 때문에 점수가 나왔는지 — 결과 화면에서 근거를 갈라 보여주기 위한 값 */
-  basis?: 'both' | 'map' | 'trace' | 'none';
-  mapPts?: number;       // 채널 A 단독 배점
-  trace?: TraceResult;   // 채널 B 판정
+  covered: boolean;          // 안양시 만안·동안구 범위 안인가
+  inMap: boolean;            // 예상 침수 구역에 포함되는가
+  seg: string | null;        // N330~N334 (클수록 깊음)
+  /* 행정동 — 서버가 좌표로 판정한다(functions/dong.js). 법정동 아님.
+     주소 검색 경로든 GPS 경로든 좌표만 있으면 채워진다. */
+  dong: { name: string; gu: string; code: string } | null;
+  predCm: number | null;     // 채널 A 예측 침수심 (구역 밖이면 0, 안양시 밖이면 null)
+  traceCm: number | null;    // 채널 B 실측 침수심 (기록 없으면 null)
+  depthCm: number | null;    // 판정용 = max(예측, 실측). null 이면 경로 A 는 "확인필요"
+  /* 판정용 침수심이 어느 채널에서 왔는지 — 결과 화면에서 근거를 갈라 보여주기 위한 값 */
+  basis: 'both' | 'map' | 'trace' | 'none';
+  trace?: TraceResult;       // 채널 B 판정
   label: string;
   matched?: string[];
   /* 서버가 실제로 판정한 좌표 — 화면에 띄워 두면 현장 테스트에서 원인 파악이 쉽다 */
   lat?: number;
   lon?: number;
   /* 빈도별 상세 — 30년엔 안전하지만 50년엔 잠기는 경우를 구분해서 보여준다 */
-  freq30?: { inMap: boolean; seg: string | null; pts: number; label: string };
-  freq50?: { inMap: boolean; seg: string | null; pts: number; label: string };
+  freq30?: FreqResult;
+  freq50?: FreqResult;
   /* shape=1 로 요청했을 때만 — 지도에 그릴 주변 폴리곤 */
   shapes?: {
     freq30: Record<string, number[][]>;

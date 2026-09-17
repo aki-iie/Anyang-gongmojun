@@ -3,8 +3,11 @@
   "description": "잠길까 — LLM 프록시 (API 키를 서버에 보관)",
   "private": true,
   "main": "index.js",
-  "engines": { "node": "22" },
+  "engines": {
+    "node": "22"
+  },
   "dependencies": {
-    "firebase-functions": "^6.5.0"
+    "firebase-functions": "^6.5.0",
+    "firebase-admin": "^13.0.0"
   }
 }

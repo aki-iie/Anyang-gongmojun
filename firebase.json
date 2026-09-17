@@ -1,17 +1,55 @@
 {
   "hosting": {
     "public": "dist",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
     "rewrites": [
-      { "source": "/api/llm", "function": "llm" },
-      { "source": "/api/flood", "function": "flood" },
-      { "source": "/api/geocode", "function": { "functionId": "geocode", "region": "asia-northeast3" } },
-      { "source": "**", "destination": "/index.html" }
+      {
+        "source": "/api/llm",
+        "function": "llm"
+      },
+      {
+        "source": "/api/flood",
+        "function": "flood"
+      },
+      {
+        "source": "/api/geocode",
+        "function": {
+          "functionId": "geocode",
+          "region": "asia-northeast3"
+        }
+      },
+      {
+        "source": "/api/save",
+        "function": {
+          "functionId": "save",
+          "region": "asia-northeast3"
+        }
+      },
+      {
+        "source": "/api/stats",
+        "function": {
+          "functionId": "stats",
+          "region": "asia-northeast3"
+        }
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
     ],
     "headers": [
       {
         "source": "/assets/**",
-        "headers": [{ "key": "Cache-Control", "value": "public,max-age=31536000,immutable" }]
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public,max-age=31536000,immutable"
+          }
+        ]
       }
     ]
   },
@@ -19,7 +57,16 @@
     {
       "source": "functions",
       "codebase": "default",
-      "ignore": ["node_modules", ".git", "firebase-debug.log", "*.local"]
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "*.local"
+      ]
     }
-  ]
+  ],
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
 }

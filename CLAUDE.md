@@ -35,7 +35,7 @@ R&R 문서에 **Supabase / Vue.js** 로 적혀 있으나 **실제 코드는 다�
 ```
 src/**                      전체 프론트엔드
 functions/index.js          엔드포인트 등록 (⚠️ 최다 충돌 지점)
-functions/flood.js          침수 판정·조회 (두 채널)
+functions/flood.js          두 채널 침수심(cm) 조회, SEG_DEPTH_CM
 functions/geocode.js        주소→좌표
 functions/flood30.json      30년 빈도 도시침수지도 (채널 A)
 functions/flood50.json      50년 빈도 도시침수지도 (채널 A)
@@ -175,8 +175,9 @@ firebase deploy --only functions  # 서버만
 
 ```
 src/
-  App.tsx           4단계 화면 상태머신 (진입 → 주소 → 사진 → 결과)
-  content.ts        ★ 질문·선택지·점수·문구 — 텍스트 수정은 대부분 여기
+  App.tsx           4단계 화면 상태머신 (진입 → 주소 → 사진 → 12문항 → 결과 A/B 카드)
+  content.ts        슬롯별 사진·이름, 판정 색, 연락처 (질문 문구는 functions/src/prompt.ts)
+  utils/diagnose.ts 판정 엔진 (차동현 · import 만)
   FloodMap.tsx      Leaflet 지도 (2단계: 깨끗한 지도 → 침수 오버레이)
   RainCanvas.tsx    배경 연출
   sync/
@@ -197,7 +198,9 @@ functions/
 ## 8. 알려진 제약
 
 - `SEG_CODE N330~N334` = 침수심 등급 (클수록 깊음). **실제 미터 범위는 미확인.**
-- 침수 위험 점수는 **두 채널 합산** — `min(30, max(예측, 실적) + 겹치면 5)`. 총점이 `/100` 표시라 단순 덧셈을 쓰지 않는다.
+- **점수를 매기지 않는다.** 판정은 `src/utils/diagnose.ts`(차동현) — 경로 A 지표 유입(침수심 − 방어높이 cm) / 경로 B 역류(징후 카운트).
+- 판정 침수심 = `max(예측, 실측)` cm. 예측은 `functions/flood.js` 의 `SEG_DEPTH_CM`(**가정값** 20/40/60/100/150), 실측은 흔적도 m×100.
+- 12문항 명세는 `functions/src/prompt.ts` 의 `SLOT_SPEC`(차동현). 프론트가 경로로 import 한다 — 서버(순수 JS)는 이 파일을 쓰지 않는다.
 - 침수흔적도 안양시 8건 = **석수동 5 · 박달동 1 · 비산동 2**, 전부 2022년 8월 호우.
   석수동 5건이 **충훈부(=흔히 말하는 "충훈동")** 일대이고 도시침수지도에는 빠져 있다 — 두 채널의 핵심 근거.
 - **충훈동은 법정동이 아니다.** 충훈부는 만안구 석수동의 지역명이다.
