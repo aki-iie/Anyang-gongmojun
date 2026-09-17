@@ -11,9 +11,8 @@ export type SavePayload = {
   slots: Partial<Slots>;
   diagnosis: {
     surface: DiagnoseResult['surface'];
-    backflow: Omit<DiagnoseResult['backflow'], 'unknownItems'>;
+    backflow: Omit<DiagnoseResult['backflow'], 'unknownItems' | 'signalCount'>;
     warnings: string[];
-    actions: { item: string }[];
     quality: DiagnoseResult['quality'];
   };
   consent: { provide: true; priority: true };
@@ -78,11 +77,12 @@ export function buildPayload(args: {
       backflow: {
         status: dx.backflow.status,
         signals: dx.backflow.signals,
-        signalCount: dx.backflow.signalCount,
+        /* signalCount 는 보내지 않는다 — signals.length 이고 서버도 저장하지 않는다 */
         experienced: dx.backflow.experienced,
       },
       warnings: dx.warnings,
-      actions: dx.actions.map((a) => ({ item: a.item })),
+      /* actions 는 보내지 않는다 — status·weakestPoint·slots 에서 재생성되며 서버도
+         저장하지 않는다. 화면 표시는 엔진 출력(dx.actions)을 그대로 쓴다 */
       quality: dx.quality,
     },
     consent: { provide: true, priority: true },
