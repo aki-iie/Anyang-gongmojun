@@ -43,7 +43,7 @@ async function exportDiagnoses(password, format) {
       address: (data.location && data.location.address) || '',
       actualFlooded: data.actualFlooded || 'unconfirmed',
       floodNote: data.floodNote || '',
-      createdAt: data.createdAt ? data.createdAt.toDate().toLocaleString('ko-KR') : '',
+      createdAt: data.createdAt ? data.createdAt.toDate().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '',
     };
     /* 12문항 응답을 개별 키로 펼친다 */
     for (const col of SLOT_COLUMNS) {

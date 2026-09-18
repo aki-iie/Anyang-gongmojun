@@ -237,19 +237,21 @@ function diagnoseBackflow(
   s: Record<string, string | null>,
   buildYear: number | null,
 ): BackflowResult {
-  const signals: string[] = [];
+  const symptoms: string[] = [];
 
-  if (s.backflow_valve === '없음') {
-    signals.push('역류방지밸브가 설치되어 있지 않습니다.');
-  }
   if (s.rainy_symptom === '있음') {
-    signals.push('비가 올 때만 배수가 지연됩니다. 하수관 수위 상승 신호입니다.');
+    symptoms.push('비가 올 때만 배수가 지연됩니다. 하수관 수위 상승 신호입니다.');
   }
   if (s.gurgling === '있음') {
-    signals.push('배수 시 이상음이 발생합니다. 배관 내 압력 이상입니다.');
+    symptoms.push('배수 시 이상음이 발생합니다. 배관 내 압력 이상입니다.');
   }
   if (buildYear !== null && buildYear !== undefined && buildYear < 1995) {
-    signals.push('1995년 이전 건축물로 배관 노후가 예상됩니다.');
+    symptoms.push('1995년 이전 건축물로 배관 노후가 예상됩니다.');
+  }
+
+  const signals = [...symptoms];
+  if (s.backflow_valve === '없음') {
+    signals.push('역류방지밸브가 설치되어 있지 않습니다.');
   }
 
   // 이미 경험했다면 징후가 아니라 사실이므로 상태를 확정한다.
@@ -263,8 +265,8 @@ function diagnoseBackflow(
 
   let status: BackflowStatus;
   if (experienced) status = '매우미흡';
-  else if (signals.length >= 3) status = '매우미흡';
-  else if (signals.length >= 1) status = '미흡';
+  else if (symptoms.length >= 2) status = '매우미흡';
+  else if (symptoms.length >= 1) status = '미흡';
   else if (unknownItems.length === core.length) status = '확인필요';
   else status = '양호';
 

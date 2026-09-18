@@ -212,16 +212,18 @@ def _diagnose_backflow(slots: Dict[str, Any],
     역류 발생 확률은 하수관망 해석의 영역이므로 예측하지 않는다.
     '막을 장치가 있는가' 와 '이미 전조가 나타나고 있는가' 만 판정한다.
     """
-    signals: List[str] = []
+    symptoms: List[str] = []
 
+    if slots.get("rainy_symptom") == "있음":
+        symptoms.append("비가 올 때만 배수가 지연됩니다. 하수관 수위 상승 신호입니다.")
+    if slots.get("gurgling") == "있음":
+        symptoms.append("배수 시 이상음이 발생합니다. 배관 내 압력 이상입니다.")
+    if build_year is not None and build_year < 1995:
+        symptoms.append("1995년 이전 건축물로 배관 노후가 예상됩니다.")
+
+    signals = list(symptoms)
     if slots.get("backflow_valve") == "없음":
         signals.append("역류방지밸브가 설치되어 있지 않습니다.")
-    if slots.get("rainy_symptom") == "있음":
-        signals.append("비가 올 때만 배수가 지연됩니다. 하수관 수위 상승 신호입니다.")
-    if slots.get("gurgling") == "있음":
-        signals.append("배수 시 이상음이 발생합니다. 배관 내 압력 이상입니다.")
-    if build_year is not None and build_year < 1995:
-        signals.append("1995년 이전 건축물로 배관 노후가 예상됩니다.")
 
     # 이미 역류를 경험했다면 징후가 아니라 사실이므로 상태를 확정한다.
     experienced = slots.get("floor_backup") == "있음"
@@ -233,9 +235,9 @@ def _diagnose_backflow(slots: Dict[str, Any],
 
     if experienced:
         status = "매우미흡"
-    elif len(signals) >= 3:
+    elif len(symptoms) >= 2:
         status = "매우미흡"
-    elif len(signals) >= 1:
+    elif len(symptoms) >= 1:
         status = "미흡"
     elif len(unknowns) == len(core):
         status = "확인필요"
