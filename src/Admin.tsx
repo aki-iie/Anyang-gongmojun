@@ -46,7 +46,7 @@ export default function Admin() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/admin/export?format=json&password=${encodeURIComponent(password)}`);
+      const res = await fetch(`/api/admin/export?format=json&password=${encodeURIComponent(password)}&t=${Date.now()}`);
       if (res.status === 401) {
         setError('비밀번호가 일치하지 않습니다.');
         setLoading(false);

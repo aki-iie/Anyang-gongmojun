@@ -279,6 +279,7 @@ exports.adminExport = onRequest(
     if (origin && !ALLOWED_ORIGINS.includes(origin)) { res.status(403).json({ error: 'origin not allowed' }); return; }
 
     try {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       const result = await exportDiagnoses(req.query.password, req.query.format);
       if (result.type === 'csv') {
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
