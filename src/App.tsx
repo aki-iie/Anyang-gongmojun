@@ -1175,32 +1175,34 @@ ${answered || '- 없음'}`,
               </dl>
             </details>
 
-            {needsSupport && (
-              <div style={sx('background:var(--color-surface);padding:38px 42px;border-radius:8px;display:grid;grid-template-columns:1fr auto;gap:36px;align-items:center', 'background:var(--color-surface);padding:20px 18px;border-radius:12px;display:flex;flex-direction:column;gap:16px')}>
-                <div style={css('display:flex;flex-direction:column;gap:12px')}>
-                  <h3 style={sx('font-size:28px;margin:0', 'font-size:20px;margin:0')}>물이 들어올 수 있는 구조예요</h3>
-                  <p style={sx('font-size:20px;margin:0;color:var(--color-neutral-700);text-wrap:pretty', 'font-size:14px;margin:0;color:var(--color-neutral-700);text-wrap:pretty')}>진단 결과를 익명으로 남겨 두면 지역별 침수 위험 통계에 반영됩니다. 궁금한 점은 아래 번호로 직접 문의하실 수 있어요.</p>
-                  <p style={sx('font-size:32px;font-weight:600;margin:6px 0 0;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap', 'font-size:22px;font-weight:600;margin:4px 0 0;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap')}>
-                    {CONTACT.phone} <span style={css('font-size:17px;font-weight:400;color:var(--color-neutral-600)')}>{CONTACT.dept}</span>
+            {/* 모든 경우에 진단 결과 저장 블록 노출 */}
+            <div style={sx('background:var(--color-surface);padding:38px 42px;border-radius:8px;display:grid;grid-template-columns:1fr auto;gap:36px;align-items:center', 'background:var(--color-surface);padding:20px 18px;border-radius:12px;display:flex;flex-direction:column;gap:16px')}>
+              <div style={css('display:flex;flex-direction:column;gap:12px')}>
+                <h3 style={sx('font-size:28px;margin:0', 'font-size:20px;margin:0')}>
+                  {needsSupport ? '물이 들어올 수 있는 구조예요' : uncertain ? '확인이 더 필요해요' : '지금 구조로는 큰 걱정은 없어요'}
+                </h3>
+                {!needsSupport && (
+                  <p style={sx('font-size:20px;color:var(--color-neutral-700);margin:0;text-wrap:pretty', 'font-size:15px;color:var(--color-neutral-700);margin:0;text-wrap:pretty')}>
+                    {uncertain
+                      ? '확인하지 못한 항목이 있어 지원 필요 여부를 확정하지 못했어요. 확인되는 대로 다시 진단해 주세요.'
+                      : '지금 답변으로는 물이 들어올 경로가 뚜렷하지 않아요. 다만 비가 얼마나 와야 잠기는지까지는 알 수 없으니, 큰 비 예보가 있으면 직접 확인해 주세요.'}
                   </p>
-                </div>
-                {ticket ? (
-                  <div style={sx('display:flex;flex-direction:column;gap:6px;text-align:right', 'display:flex;flex-direction:column;gap:4px')}>
-                    <span style={css('font-size:26px;font-weight:600;color:var(--color-accent-700)')}>저장 완료</span>
-                    <span style={css('font-size:19px')}>기록번호 {ticket}</span>
-                    <span style={css('font-size:17px;color:var(--color-neutral-600)')}>지역별 침수 위험 통계에 반영됩니다.</span>
-                  </div>
-                ) : (
-                  <button className="btn btn-primary" onClick={() => setConsentOpen(true)} style={sx('font-size:25px;padding:24px 36px;min-height:88px;border-radius:8px;box-shadow:var(--shadow-md)', 'font-size:19px;padding:18px;min-height:68px;border-radius:12px;width:100%;box-sizing:border-box;box-shadow:var(--shadow-md)')}>진단 결과 남기기</button>
                 )}
+                <p style={sx('font-size:20px;margin:0;color:var(--color-neutral-700);text-wrap:pretty', 'font-size:14px;margin:0;color:var(--color-neutral-700);text-wrap:pretty')}>진단 결과를 익명으로 남겨 두면 지역별 침수 위험 통계에 반영됩니다. 궁금한 점은 아래 번호로 직접 문의하실 수 있어요.</p>
+                <p style={sx('font-size:32px;font-weight:600;margin:6px 0 0;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap', 'font-size:22px;font-weight:600;margin:4px 0 0;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap')}>
+                  {CONTACT.phone} <span style={css('font-size:17px;font-weight:400;color:var(--color-neutral-600)')}>{CONTACT.dept}</span>
+                </p>
               </div>
-            )}
-
-            {!needsSupport && (
-              <p style={sx('font-size:20px;color:var(--color-neutral-700);margin:0;text-wrap:pretty', 'font-size:15px;color:var(--color-neutral-700);margin:0;text-wrap:pretty')}>{uncertain
-                ? '확인하지 못한 항목이 있어 지원 필요 여부를 확정하지 못했어요. 확인되는 대로 다시 진단해 주세요.'
-                : '지금 답변으로는 물이 들어올 경로가 뚜렷하지 않아요. 다만 비가 얼마나 와야 잠기는지까지는 알 수 없으니, 큰 비 예보가 있으면 직접 확인해 주세요.'}</p>
-            )}
+              {ticket ? (
+                <div style={sx('display:flex;flex-direction:column;gap:6px;text-align:right', 'display:flex;flex-direction:column;gap:4px')}>
+                  <span style={css('font-size:26px;font-weight:600;color:var(--color-accent-700)')}>저장 완료</span>
+                  <span style={css('font-size:19px')}>기록번호 {ticket}</span>
+                  <span style={css('font-size:17px;color:var(--color-neutral-600)')}>지역별 침수 위험 통계에 반영됩니다.</span>
+                </div>
+              ) : (
+                <button className="btn btn-primary" onClick={() => setConsentOpen(true)} style={sx('font-size:25px;padding:24px 36px;min-height:88px;border-radius:8px;box-shadow:var(--shadow-md)', 'font-size:19px;padding:18px;min-height:68px;border-radius:12px;width:100%;box-sizing:border-box;box-shadow:var(--shadow-md)')}>진단 결과 남기기</button>
+              )}
+            </div>
 
             {/* 결과에 대한 후속 대화 */}
             <div style={css('display:flex;flex-direction:column;gap:22px;max-width:780px')}>

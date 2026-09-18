@@ -1,13 +1,10 @@
 /* 지원 접수 저장 — 진단 결과를 Firestore(diagnoses)에 기록한다.
    엔드포인트 등록은 index.js 가 한다 (CLAUDE.md 경계 규칙: 순수 로직과 등록을 분리).
 
-   저장 기준 — 세 가지를 모두 만족할 때만 기록한다. 클라이언트 값을 그대로 믿지 않고
-   서버에서 다시 검사한다(위조 요청으로 공무원 대시보드에 쓰레기가 쌓이는 것을 막는다).
-     1) 위험 판정이 실제로 났을 것
-        경로 A 지표유입 '유입가능'  또는  경로 B 역류 '미흡'/'매우미흡'
-        (App.tsx 의 needsSupport 와 동일한 조건. 임의 점수 기준을 새로 만들지 않는다)
-     2) 동의 두 건 모두 체크 (제공 동의 + 우선순위 판단 사용 동의)
-     3) 좌표가 안양시 부근일 것
+   저장 기준 — 클라이언트 값을 그대로 믿지 않고 서버에서 검사한다.
+     1) 동의 두 건 모두 체크 (제공 동의 + 우선순위 판단 사용 동의)
+     2) 좌표가 안양시 부근일 것
+     (위험/안전 여부와 무관하게 사용자가 원하면 모두 기록한다)
 
    사진은 받지도 저장하지도 않는다. 슬롯 답변과 판정 결과 텍스트만 남긴다. */
 
@@ -139,12 +136,9 @@ function validateAndBuild(body) {
     throw new BadRequest('두 가지 동의가 모두 필요합니다');
   }
 
-  /* 2) 위험 판정 — 저장 대상인지 */
+  /* 2) 판정 상태 유효성 검사 (안전, 위험 무관하게 저장) */
   if (!SURFACE_STATUS.has(surface.status)) throw new BadRequest('surface.status 값이 올바르지 않습니다');
   if (!BACKFLOW_STATUS.has(backflow.status)) throw new BadRequest('backflow.status 값이 올바르지 않습니다');
-  const atRisk = surface.status === '유입가능'
-    || backflow.status === '미흡' || backflow.status === '매우미흡';
-  if (!atRisk) throw new BadRequest('지원이 필요한 판정이 아니어서 접수 대상이 아닙니다');
 
   /* 3) 좌표 */
   const lat = num(loc.lat), lon = num(loc.lon);
