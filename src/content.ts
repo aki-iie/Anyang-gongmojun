@@ -52,6 +52,7 @@ export const STATUS_TONE: Record<string, 'danger' | 'warn' | 'ok' | 'unknown'> =
   방어가능: 'ok',
   매우미흡: 'danger',
   미흡: 'warn',
+  주의: 'warn',
   양호: 'ok',
   확인필요: 'unknown',
 };

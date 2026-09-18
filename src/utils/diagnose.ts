@@ -42,7 +42,7 @@ export interface Slots {
 }
 
 export type SurfaceStatus = '유입가능' | '방어가능' | '확인필요';
-export type BackflowStatus = '양호' | '미흡' | '매우미흡' | '확인필요';
+export type BackflowStatus = '양호' | '주의' | '미흡' | '매우미흡' | '확인필요';
 
 export interface SurfaceResult {
   status: SurfaceStatus;
@@ -250,7 +250,8 @@ function diagnoseBackflow(
   }
 
   const signals = [...symptoms];
-  if (s.backflow_valve === '없음') {
+  const hasNoValve = s.backflow_valve === '없음';
+  if (hasNoValve) {
     signals.push('역류방지밸브가 설치되어 있지 않습니다.');
   }
 
@@ -264,11 +265,19 @@ function diagnoseBackflow(
   const unknownItems = core.filter((k) => isUnknown(s[k]));
 
   let status: BackflowStatus;
-  if (experienced) status = '매우미흡';
-  else if (symptoms.length >= 2) status = '매우미흡';
-  else if (symptoms.length >= 1) status = '미흡';
-  else if (unknownItems.length === core.length) status = '확인필요';
-  else status = '양호';
+  if (experienced || symptoms.length >= 2) {
+    status = '매우미흡';
+  } else if (symptoms.length >= 1 && hasNoValve) {
+    // 다른 증상이 1개 이상 있으면서 역류밸브가 없는 상황에만 미흡
+    status = '미흡';
+  } else if (hasNoValve || symptoms.length >= 1) {
+    // 징후는 없으나 역류밸브가 없거나, 밸브는 있으나 경미한 징후 1개 -> 주의
+    status = '주의';
+  } else if (unknownItems.length === core.length) {
+    status = '확인필요';
+  } else {
+    status = '양호';
+  }
 
   return { status, signals, signalCount: signals.length, experienced, unknownItems };
 }
@@ -331,7 +340,7 @@ function buildActions(
     }
   }
 
-  if ((backflow.status === '미흡' || backflow.status === '매우미흡')
+  if ((backflow.status === '미흡' || backflow.status === '매우미흡' || backflow.status === '주의')
       && s.backflow_valve === '없음') {
     actions.push({
       item: '역류방지밸브 설치',

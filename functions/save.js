@@ -25,7 +25,7 @@ const SLOT_IDS = [
 ];
 
 const SURFACE_STATUS = new Set(['유입가능', '방어가능', '확인필요']);
-const BACKFLOW_STATUS = new Set(['양호', '미흡', '매우미흡', '확인필요']);
+const BACKFLOW_STATUS = new Set(['양호', '주의', '미흡', '매우미흡', '확인필요']);
 
 class BadRequest extends Error {}
 
@@ -51,7 +51,7 @@ function districtOf(address) {
    ──────────────────────────────────────────────────────────── */
 function levelOf(surfaceStatus, backflowStatus) {
   if (surfaceStatus === '유입가능' || backflowStatus === '매우미흡') return '위험';
-  if (backflowStatus === '미흡') return '주의';
+  if (backflowStatus === '미흡' || backflowStatus === '주의') return '주의';
   if (surfaceStatus === '확인필요' || backflowStatus === '확인필요') return '확인필요';
   return '안전';
 }
@@ -110,7 +110,7 @@ function buildSummary(dong, surface, backflow, needs) {
   }
 
   const parts = [where, head];
-  if (backflow.status === '매우미흡' || backflow.status === '미흡') {
+  if (backflow.status === '매우미흡' || backflow.status === '미흡' || backflow.status === '주의') {
     parts.push(`역류 대비 ${backflow.status}`);
   }
   if (needs.length) parts.push(`필요: ${needs.join(' / ')}`);

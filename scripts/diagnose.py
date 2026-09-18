@@ -222,7 +222,8 @@ def _diagnose_backflow(slots: Dict[str, Any],
         symptoms.append("1995년 이전 건축물로 배관 노후가 예상됩니다.")
 
     signals = list(symptoms)
-    if slots.get("backflow_valve") == "없음":
+    has_no_valve = slots.get("backflow_valve") == "없음"
+    if has_no_valve:
         signals.append("역류방지밸브가 설치되어 있지 않습니다.")
 
     # 이미 역류를 경험했다면 징후가 아니라 사실이므로 상태를 확정한다.
@@ -233,12 +234,12 @@ def _diagnose_backflow(slots: Dict[str, Any],
     core = ["backflow_valve", "rainy_symptom", "gurgling", "floor_backup"]
     unknowns = [s for s in core if _is_unknown(slots.get(s))]
 
-    if experienced:
+    if experienced or len(symptoms) >= 2:
         status = "매우미흡"
-    elif len(symptoms) >= 2:
-        status = "매우미흡"
-    elif len(symptoms) >= 1:
+    elif len(symptoms) >= 1 and has_no_valve:
         status = "미흡"
+    elif has_no_valve or len(symptoms) >= 1:
+        status = "주의"
     elif len(unknowns) == len(core):
         status = "확인필요"
     else:
@@ -304,7 +305,7 @@ def _build_actions(surface: Dict[str, Any],
                            "자비 설치 또는 임대인 협의가 필요합니다.",
             })
 
-    if backflow["status"] in ("미흡", "매우미흡"):
+    if backflow["status"] in ("미흡", "매우미흡", "주의"):
         if slots.get("backflow_valve") == "없음":
             actions.append({
                 "item": "역류방지밸브 설치",
