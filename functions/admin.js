@@ -53,14 +53,27 @@ async function exportDiagnoses(password, format) {
   });
 
   if (format === 'csv') {
+    const yearColumns = ['2026년 침수', '2027년 침수', '2028년 침수', '2029년 침수', '2030년 침수'];
     const header = [
-      '접수번호', '행정동', '주소', '실제침수여부', '침수메모', '접수일시',
+      '접수번호', '행정동', '주소', '접수일시',
       ...SLOT_COLUMNS.map(c => c.label),
+      '실제침수여부', '침수메모',
+      ...yearColumns
     ].join(',');
     const rows = docs.map(d => {
+      const slotValues = SLOT_COLUMNS.map(c => {
+        let val = String(d[c.id] || '');
+        // 엑셀에서 '1-2'나 '3-4'가 '1월 2일' 등 날짜로 자동 변환되는 것을 막기 위해 '~'로 치환
+        if (/^\d+-\d+$/.test(val)) {
+          val = val.replace('-', '~');
+        }
+        return val;
+      });
       const cells = [
-        d.ticket, d.dong, d.address, formatFloodStatus(d.actualFlooded), d.floodNote, d.createdAt,
-        ...SLOT_COLUMNS.map(c => d[c.id]),
+        d.ticket, d.dong, d.address, d.createdAt,
+        ...slotValues,
+        formatFloodStatus(d.actualFlooded), d.floodNote,
+        ...yearColumns.map(() => '') // 연도별 빈 열 추가
       ];
       return cells.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
     });

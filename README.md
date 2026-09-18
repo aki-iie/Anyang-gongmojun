@@ -169,7 +169,7 @@
 | 질문 옆에 띄울 사진 · AI 판독 대상 | `src/content.ts` | `SLOT_PHOTO` |
 | 확인 질문에 쓰는 항목 이름 | `src/content.ts` | `SLOT_NAME` |
 | 판정 상태별 색 | `src/content.ts` | `STATUS_TONE` |
-| **담당 부서 전화번호** | `src/content.ts` | `CONTACT` ← 지금 예시 번호 |
+| **담당 부서 전화번호** | `src/content.ts` | `CONTACT` |
 | 분석 중 문구("하늘에게 물어보는 중…") | `src/content.ts` | `WAIT` |
 | 결과 제목·지원 접수 조건 | `src/App.tsx` | `headline` · `needsSupport` |
 | 화면 제목·버튼·안내문 | `src/App.tsx` | 문구로 `grep` |
